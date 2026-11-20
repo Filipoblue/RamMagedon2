@@ -20,6 +20,13 @@ k.loadRoot("./");
 // The TTF was patched by scripts/fix-font.py (broken metrics), so it renders at half
 // size: text size 24 here ~ "12px" Minecraftia. Crispest sizes: 16 / 32 / 64.
 k.loadFont("minecraftia", "fonts/Minecraftia-Regular.ttf", { filter: "nearest" });
+// Extraction close-up art (optional, placeholders are drawn when missing).
+// Sizes on screen: pc_panel / pc_board 360x240, pc_ram 200x30, pc_screw 24x24
+// Draw them 1:1 in these sizes, or exactly half (180x120, 100x15, 12x12) for chunky 2x pixels.
+// k.loadSprite("pc_panel", "sprites/pc_panel.png");
+// k.loadSprite("pc_board", "sprites/pc_board.png");
+// k.loadSprite("pc_ram", "sprites/pc_ram.png");
+// k.loadSprite("pc_screw", "sprites/pc_screw.png");
 // Room art (see `background` in src/level/rooms.js), e.g.:
 // k.loadSprite("sala1", "maps/sala1.png");
 

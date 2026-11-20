@@ -41,15 +41,15 @@ export const DARKNESS = {
 export const TEACHER = {
     speed: 70,
     size: 22,
-    visionRange: TILE * 6,
-    visionFov: 70, // degrees
+    visionRange: TILE * 4.5,
+    visionFov: 55, // degrees
     visionRays: 40,
     // multiplier on vision range when the player's flashlight is ON
-    flashlightRangeMul: 1.6,
+    flashlightRangeMul: 1.35,
     // multiplier when the flashlight is OFF (hard to spot in the dark)
     darkRangeMul: 0.6,
     // seconds of continuous sight before GAME OVER (GDD: ~0.5 s)
-    detectTime: 0.5,
+    detectTime: 0.8,
     // how fast the detection meter drains when out of sight (per second)
     detectDecay: 1.0,
     waitAtWaypoint: 0.8,
@@ -66,6 +66,7 @@ export const EXTRACTION = {
     screwNoise: TILE * 3, // each finished screw
     // 2) slide the side panel off: drag it to the right, slowly
     panelDistance: 220, // px
+    panelMinSpeed: 70, // px/s; slower = the panel sticks and does not move
     panelMaxSpeed: 420, // px/s; faster = "BRZDĘK!"
     panelNoise: TILE * 5,
     panelFailNoise: TILE * 10,
@@ -77,6 +78,7 @@ export const EXTRACTION = {
     needleSpeedDark: 1.25, // flashlight OFF (harder)
     // 4) pull the RAM out: drag it up, slowly
     pullDistance: 110, // px
+    pullMinSpeed: 50, // px/s
     pullMaxSpeed: 260, // px/s
     pullNoise: TILE * 3,
     failNoise: TILE * 12, // "TRZASK!" (missed latch / RAM pulled too hard)
