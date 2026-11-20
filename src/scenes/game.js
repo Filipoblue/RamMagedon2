@@ -5,15 +5,19 @@ import { spawnPlayer } from "../entities/player.js";
 import { spawnTeacher } from "../entities/teacher.js";
 import { addLighting } from "../systems/lighting.js";
 import { startExtraction } from "../systems/extraction.js";
-import { addFx, screenShake, uiShakeOffset } from "../systems/fx.js";
+import { addFx, screenShake, uiShakeOffset, shakeOffset, setContinuousShake } from "../systems/fx.js";
 
 const INTERACT_DIST = TILE * 1.3;
 
 // ---- tweakables ----
 export const CAMERA_LERP = 6; // how fast the camera catches up with the player (higher = stiffer)
 export const ALARM_SHAKE = 14; // screen shake when a failed mini-game alarms a teacher
-export const ALARM_NEAR_SHAKE = 3; // small repeated shake while an alarmed teacher is close
-export const ALARM_NEAR_DIST = TILE * 5; // "close" for the above + full red glow
+export const ALARM_NEAR_DIST = TILE * 5; // alarmed teacher this close = full red glow
+// Proximity shake: any teacher closer than PROXIMITY_DIST shakes the screen,
+// the closer the stronger (up to PROXIMITY_MAX_SHAKE px when touching).
+export const PROXIMITY_DIST = TILE * 6;
+export const PROXIMITY_MAX_SHAKE = 8; // px
+export const PROXIMITY_CURVE = 1.90; // >1 = gentle far away, strong only when really close
 
 /**
  * Scene params:
@@ -27,10 +31,13 @@ export function gameScene(k) {
         const player = spawnPlayer(k, level.playerStart);
 
         // camera locked on the player, smoothly following (frame-rate independent lerp)
-        k.setCamPos(player.pos);
+        // (camBase = smooth position, the shake offset is added on top)
+        let camBase = player.pos;
+        k.setCamPos(camBase);
         k.onUpdate(() => {
             const t = 1 - Math.exp(-CAMERA_LERP * k.dt());
-            k.setCamPos(k.getCamPos().lerp(player.pos, t));
+            camBase = camBase.lerp(player.pos, t);
+            k.setCamPos(camBase.add(shakeOffset(k)));
         });
 
         run ??= { ram: 0, startTime: k.time() };
@@ -100,7 +107,6 @@ export function gameScene(k) {
 
         // ---- alarm: shake + red glow while a teacher is coming after a failed mini-game ----
         let wasAlarmed = 0;
-        let nearShake = 0;
         let glow = 0;
         k.add([
             k.layer("ui"),
@@ -117,11 +123,11 @@ export function gameScene(k) {
                     }
                     const target = alarmed.length ? 0.35 + 0.65 * closeness : 0;
                     glow += (target - glow) * Math.min(1, k.dt() * 4);
-                    nearShake -= k.dt();
-                    if (alarmed.some((t) => t.pos.dist(player.pos) < ALARM_NEAR_DIST) && nearShake <= 0) {
-                        screenShake(k, ALARM_NEAR_SHAKE);
-                        nearShake = 0.35;
-                    }
+                    // proximity shake from the nearest teacher (any state)
+                    let nearest = Infinity;
+                    for (const t of k.get("teacher")) nearest = Math.min(nearest, t.pos.dist(player.pos));
+                    const prox = Math.max(0, 1 - nearest / PROXIMITY_DIST);
+                    setContinuousShake(PROXIMITY_MAX_SHAKE * Math.pow(prox, PROXIMITY_CURVE));
                 },
                 draw() {
                     if (glow < 0.01) return;
