@@ -3,19 +3,19 @@ import { SOUND } from "../config.js";
 // "Radar słuchowy" (GDD 4.B).
 // emitSound() draws an expanding ring on the "glow" layer (visible through
 // darkness and walls) and tells every teacher within the radius about it.
-// TODO(P3): teacher footsteps -> small rings every step.
+// Teachers also send a periodic "ping" ring (see PING_* in entities/teacher.js).
 
-export function emitSound(k, pos, radius, opts = {}) {
-    const color = opts.color ?? [255, 255, 255];
-    const ring = k.add([
+/** Expanding ring on the "glow" layer (purely visual). */
+export function spawnRing(k, pos, radius, color = [255, 255, 255], duration = SOUND.ringDuration, width = 2) {
+    return k.add([
         k.pos(pos),
         k.layer("glow"),
         k.opacity(1),
-        k.lifespan(SOUND.ringDuration),
+        k.lifespan(duration),
         {
             t: 0,
             update() {
-                this.t += k.dt() / SOUND.ringDuration;
+                this.t += k.dt() / duration;
             },
             draw() {
                 const r = Math.max(1, radius * Math.min(1, this.t));
@@ -23,12 +23,21 @@ export function emitSound(k, pos, radius, opts = {}) {
                     pos: k.vec2(0, 0),
                     radius: r,
                     fill: false,
-                    outline: { width: 2, color: k.rgb(...color) },
+                    outline: { width, color: k.rgb(...color) },
                     opacity: Math.max(0, 1 - this.t) * this.opacity,
                 });
             },
         },
     ]);
+}
+
+/**
+ * A noise: ring + every teacher within `radius` hears it.
+ * @returns {number} how many teachers heard it
+ */
+export function emitSound(k, pos, radius, opts = {}) {
+    const color = opts.color ?? [255, 255, 255];
+    spawnRing(k, pos, radius, color);
     if (opts.label) {
         k.add([
             k.pos(pos.add(0, -20)),
@@ -41,8 +50,12 @@ export function emitSound(k, pos, radius, opts = {}) {
             k.move(k.UP, 20),
         ]);
     }
+    let heard = 0;
     for (const t of k.get("teacher")) {
-        if (t.pos.dist(pos) <= radius) t.hearNoise?.(pos, opts.loudness ?? 1);
+        if (t.pos.dist(pos) <= radius) {
+            t.hearNoise?.(pos, opts.loudness ?? 1);
+            heard++;
+        }
     }
-    return ring;
+    return heard;
 }

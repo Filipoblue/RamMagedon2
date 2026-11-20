@@ -2,9 +2,11 @@ import { TILE, COLORS } from "../config.js";
 import { buildSegments } from "../systems/raycast.js";
 
 // Map legend: see src/level/rooms.js.
-// Only walls, cabinets and closed doors block light and sight.
-// Desks ("=", "C") are low: light and teachers' eyes pass over them.
+// Player's light/view is blocked only by walls, cabinets and closed doors.
 const OPAQUE = new Set(["#", "S", "D"]);
+// What blocks a TEACHER's sight: the above + every desk (with or without PC).
+// (The player's flashlight goes over desks, teachers cannot see the player behind them.)
+const SIGHT_BLOCK = new Set(["#", "S", "D", "=", "C"]);
 // Glass ("G") blocks movement, but not light/sight.
 const SOLID = new Set(["#", "S", "D", "=", "C", "G"]);
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -79,7 +81,8 @@ export function buildLevel(k, room) {
         teachers, // [{ route, waypoints: Vec2[], speed? }]
         computers,
         doors,
-        segments: [], // everything that blocks light and sight (walls, cabinets, closed doors)
+        segments: [], // blocks the player's light/view: walls, cabinets, closed doors
+        sightSegments: [], // blocks teachers' sight: the above + all desks and PCs
         isOpaque: (x, y) => OPAQUE.has(at(x, y)),
         isSolid: (x, y) => SOLID.has(at(x, y)),
         /**
@@ -120,6 +123,7 @@ export function buildLevel(k, room) {
         },
         rebuildSegments() {
             level.segments = buildSegments(cols, rows, TILE, level.isOpaque);
+            level.sightSegments = buildSegments(cols, rows, TILE, (x, y) => SIGHT_BLOCK.has(at(x, y)));
         },
         openDoors() {
             for (const d of doors) {

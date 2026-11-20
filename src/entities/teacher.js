@@ -1,5 +1,14 @@
 import { TEACHER, COLORS } from "../config.js";
 import { visibilityFan, hasLineOfSight, inCone } from "../systems/raycast.js";
+import { spawnRing } from "../systems/sound.js";
+
+// ---- tweakables ----
+// Every PING_INTERVAL seconds a ring expands from each teacher's position
+// (visible through darkness), so the player always roughly knows where they are.
+export const PING_INTERVAL = 2.5; // seconds
+export const PING_RADIUS = 48; // px
+export const PING_COLOR = [255, 190, 70];
+export const PING_COLOR_ALARMED = [255, 60, 60];
 
 const DEG = Math.PI / 180;
 
@@ -39,9 +48,12 @@ export function spawnTeacher(k, cfg, ctx) {
             investigate: 0, // seconds left looking around at the noise
             lookBase: 0,
             noisePos: null,
+            alarmed: false, // heard a LOUD noise (failed mini-game) -> red glow + shake
+            pingTimer: k.rand(0, PING_INTERVAL), // so teachers do not ping in sync
             /** Called by emitSound() when this teacher is in range. */
-            hearNoise(pos) {
+            hearNoise(pos, loudness = 1) {
                 if (t.state === AI.CHASE) return;
+                if (loudness >= 2) t.alarmed = true;
                 t.state = AI.SUSPICIOUS;
                 t.noisePos = pos;
                 t.investigate = 0;
@@ -63,14 +75,20 @@ export function spawnTeacher(k, cfg, ctx) {
             // TODO(P3): case AI.CHASE
         }
 
+        t.pingTimer -= dt;
+        if (t.pingTimer <= 0) {
+            t.pingTimer = PING_INTERVAL;
+            spawnRing(k, t.pos, PING_RADIUS, t.alarmed ? PING_COLOR_ALARMED : PING_COLOR, 1.1);
+        }
+
         const { player } = ctx;
         const fov = TEACHER.visionFov * DEG;
         const range = visionRange(player);
-        t.cone = visibilityFan(t.pos.x, t.pos.y, t.facing, fov, range, TEACHER.visionRays, level.segments);
+        t.cone = visibilityFan(t.pos.x, t.pos.y, t.facing, fov, range, TEACHER.visionRays, level.sightSegments);
 
         const sees =
             inCone(t.pos.x, t.pos.y, t.facing, fov, range, player.pos.x, player.pos.y) &&
-            hasLineOfSight(t.pos.x, t.pos.y, player.pos.x, player.pos.y, level.segments);
+            hasLineOfSight(t.pos.x, t.pos.y, player.pos.x, player.pos.y, level.sightSegments);
 
         // a suspicious teacher spots you faster
         const mul = t.state === AI.SUSPICIOUS ? 1.5 : 1;
@@ -82,7 +100,10 @@ export function spawnTeacher(k, cfg, ctx) {
         if (t.detection >= 1) ctx.onCaught();
     });
 
-    t.onCollide("player", () => ctx.onCaught());
+    // touching = caught, but never through a wall / PC (LOS check as a safety net)
+    t.onCollide("player", (p) => {
+        if (hasLineOfSight(t.pos.x, t.pos.y, p.pos.x, p.pos.y, level.sightSegments)) ctx.onCaught();
+    });
 
     t.onDraw(() => {
         if (t.cone.length > 2) {
@@ -140,6 +161,7 @@ function suspicious(t, waypoints, dt, level, speed) {
     }
     // nothing found -> walk back to the patrol route
     t.state = AI.PATROL;
+    t.alarmed = false;
     t.path = level.findPath(t.pos, waypoints[t.wpIndex]);
 }
 

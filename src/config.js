@@ -55,7 +55,7 @@ export const TEACHER = {
     waitAtWaypoint: 0.8,
     turnSpeed: 4, // rad/s
     // SUSPICIOUS: walks to the noise faster and looks around there
-    suspiciousSpeedMul: 1.35,
+    suspiciousSpeedMul: 1.05, // was 1.35: teachers rushed too fast
     investigateTime: 3, // seconds looking around at the noise source (GDD: 3 s)
 };
 

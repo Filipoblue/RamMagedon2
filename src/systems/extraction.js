@@ -1,5 +1,10 @@
 import { EXTRACTION as X } from "../config.js";
 import { emitSound } from "./sound.js";
+import { screenShake, uiShakeOffset } from "./fx.js";
+
+// ---- tweakables ----
+export const FAIL_SHAKE = 10; // px, mini-game mistake (camera + this panel)
+export const FAIL_FLASH = 0.6; // 0..1 red flash on a mistake
 
 // RAM extraction mini-game (GDD 4.C), 4 stages. Every stage makes noise,
 // mistakes make a LOT of noise. Teachers in range come to check.
@@ -38,7 +43,6 @@ export function startExtraction(k, pc, player, onDone) {
         latches: 0,
     };
     const pr = pc.extract;
-    const noisePos = pc.pos.add(16, 16);
     const box = k.vec2(k.width() / 2 - W / 2, k.height() / 2 - H / 2 + 40);
     const screwPos = [
         box.add(48, 48), box.add(W - 48, 48), box.add(W - 48, H - 48), box.add(48, H - 48),
@@ -73,9 +77,12 @@ export function startExtraction(k, pc, player, onDone) {
         st.msgColor = color;
         st.msgTime = 1.2;
     };
-    const noise = (radius, label, color) => emitSound(k, noisePos, radius, { label, color, loudness: label ? 2 : 1 });
+    // The noise comes from where the player stands (a free tile next to the PC), so an
+    // alerted teacher path-finds through the gaps between desks to the player.
+    const noise = (radius, label, color) => emitSound(k, player.pos, radius, { label, color, loudness: label ? 2 : 1 });
     const fail = (label) => {
         noise(X.failNoise, label, [255, 90, 90]);
+        screenShake(k, FAIL_SHAKE, FAIL_FLASH);
         say(`${label} Za szybko!`, [255, 90, 90]);
         st.cooldown = 0.5;
     };
@@ -213,7 +220,11 @@ export function startExtraction(k, pc, player, onDone) {
                 }
             },
             draw() {
+                // the panel is fixed on screen, so shake it explicitly
+                k.pushTransform();
+                k.pushTranslate(uiShakeOffset(k));
                 drawUI(k, st, pr, box, screwPos);
+                k.popTransform();
             },
         },
     ]);

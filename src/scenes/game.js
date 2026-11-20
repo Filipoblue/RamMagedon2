@@ -5,8 +5,15 @@ import { spawnPlayer } from "../entities/player.js";
 import { spawnTeacher } from "../entities/teacher.js";
 import { addLighting } from "../systems/lighting.js";
 import { startExtraction } from "../systems/extraction.js";
+import { addFx, screenShake, uiShakeOffset } from "../systems/fx.js";
 
 const INTERACT_DIST = TILE * 1.3;
+
+// ---- tweakables ----
+export const CAMERA_LERP = 6; // how fast the camera catches up with the player (higher = stiffer)
+export const ALARM_SHAKE = 14; // screen shake when a failed mini-game alarms a teacher
+export const ALARM_NEAR_SHAKE = 3; // small repeated shake while an alarmed teacher is close
+export const ALARM_NEAR_DIST = TILE * 5; // "close" for the above + full red glow
 
 /**
  * Scene params:
@@ -17,10 +24,14 @@ export function gameScene(k) {
     k.scene("game", ({ levelIndex = 0, run = null } = {}) => {
         const room = LEVELS[levelIndex];
         const level = buildLevel(k, room);
-        // maps are smaller than the screen -> centre the camera on the map
-        k.setCamPos(k.vec2(level.width / 2, level.height / 2));
-
         const player = spawnPlayer(k, level.playerStart);
+
+        // camera locked on the player, smoothly following (frame-rate independent lerp)
+        k.setCamPos(player.pos);
+        k.onUpdate(() => {
+            const t = 1 - Math.exp(-CAMERA_LERP * k.dt());
+            k.setCamPos(k.getCamPos().lerp(player.pos, t));
+        });
 
         run ??= { ram: 0, startTime: k.time() };
         const retryRun = { ...run }; // snapshot for "try again" on this level
@@ -44,6 +55,7 @@ export function gameScene(k) {
         }
 
         addLighting(k, level, player);
+        addFx(k);
 
         // ---- input ----
         k.onKeyPress("f", () => player.toggleFlashlight());
@@ -82,6 +94,53 @@ export function gameScene(k) {
                         k.drawRect({ pos: p.add(-14, 0), width: 28 * t.detection, height: 4, color: k.rgb(255, 60, 60) });
                         k.drawText({ text: t.detection > 0.6 ? "!" : "?", pos: p.add(0, -14), size: 24, anchor: "center", color: k.rgb(255, 220, 80) });
                     }
+                },
+            },
+        ]);
+
+        // ---- alarm: shake + red glow while a teacher is coming after a failed mini-game ----
+        let wasAlarmed = 0;
+        let nearShake = 0;
+        let glow = 0;
+        k.add([
+            k.layer("ui"),
+            k.fixed(),
+            {
+                update() {
+                    const alarmed = k.get("teacher").filter((t) => t.alarmed);
+                    if (alarmed.length > wasAlarmed) screenShake(k, ALARM_SHAKE, 1); // shake + red flash
+                    wasAlarmed = alarmed.length;
+                    // 0..1: how close the nearest alarmed teacher is
+                    let closeness = 0;
+                    for (const t of alarmed) {
+                        closeness = Math.max(closeness, 1 - Math.min(1, t.pos.dist(player.pos) / (ALARM_NEAR_DIST * 2)));
+                    }
+                    const target = alarmed.length ? 0.35 + 0.65 * closeness : 0;
+                    glow += (target - glow) * Math.min(1, k.dt() * 4);
+                    nearShake -= k.dt();
+                    if (alarmed.some((t) => t.pos.dist(player.pos) < ALARM_NEAR_DIST) && nearShake <= 0) {
+                        screenShake(k, ALARM_NEAR_SHAKE);
+                        nearShake = 0.35;
+                    }
+                },
+                draw() {
+                    if (glow < 0.01) return;
+                    // red vignette: stacked frames, strongest at the screen edge, pulsing
+                    const pulse = 0.75 + 0.25 * Math.sin(k.time() * 8);
+                    const w = k.width(), h = k.height();
+                    k.pushTransform();
+                    k.pushTranslate(uiShakeOffset(k));
+                    for (let i = 0; i < 10; i++) {
+                        const b = 10; // band thickness
+                        const o = i * b;
+                        const a = glow * pulse * 0.45 * (1 - i / 10);
+                        const c = k.rgb(255, 20, 20);
+                        k.drawRect({ pos: k.vec2(o, o), width: w - 2 * o, height: b, color: c, opacity: a });
+                        k.drawRect({ pos: k.vec2(o, h - o - b), width: w - 2 * o, height: b, color: c, opacity: a });
+                        k.drawRect({ pos: k.vec2(o, o + b), width: b, height: h - 2 * o - 2 * b, color: c, opacity: a });
+                        k.drawRect({ pos: k.vec2(w - o - b, o + b), width: b, height: h - 2 * o - 2 * b, color: c, opacity: a });
+                    }
+                    k.popTransform();
                 },
             },
         ]);

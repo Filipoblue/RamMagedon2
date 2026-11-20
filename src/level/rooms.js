@@ -4,8 +4,8 @@
 // Legend:
 //   #   wall              (blocks movement + light)
 //   S   tall cabinet      (blocks movement + light)
-//   =   desk              (blocks movement, light passes over it)
-//   C   desk with a PC that has RAM (target, glowing LED)
+//   =   desk              (blocks movement; your light passes over it, teachers cannot see through it)
+//   C   desk with a PC that has RAM (target, glowing LED; same as a desk for light/sight)
 //   G   glass wall        (blocks movement, light and sight pass through)
 //   D   exit door         (opens when `ramToOpen` RAM is stolen; walk out through it)
 //   P   player start
