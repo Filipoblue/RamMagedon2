@@ -1,14 +1,7 @@
 import { TEACHER, COLORS } from "../config.js";
 import { visibilityFan, hasLineOfSight, inCone } from "../systems/raycast.js";
 import { spawnRing } from "../systems/sound.js";
-
-// ---- tweakables ----
-// Every PING_INTERVAL seconds a ring expands from each teacher's position
-// (visible through darkness), so the player always roughly knows where they are.
-export const PING_INTERVAL = 2.5; // seconds
-export const PING_RADIUS = 48; // px
-export const PING_COLOR = [255, 190, 70];
-export const PING_COLOR_ALARMED = [255, 60, 60];
+import { PING_INTERVAL, PING_RADIUS, PING_COLOR, PING_COLOR_ALARMED } from "../config.js";
 
 const DEG = Math.PI / 180;
 

@@ -6,18 +6,9 @@ import { spawnTeacher } from "../entities/teacher.js";
 import { addLighting } from "../systems/lighting.js";
 import { startExtraction } from "../systems/extraction.js";
 import { addFx, screenShake, uiShakeOffset, shakeOffset, setContinuousShake } from "../systems/fx.js";
+import { CAMERA_LERP, ALARM_SHAKE, ALARM_NEAR_DIST, PROXIMITY_DIST, PROXIMITY_MAX_SHAKE, PROXIMITY_CURVE } from "../config.js";
 
 const INTERACT_DIST = TILE * 1.3;
-
-// ---- tweakables ----
-export const CAMERA_LERP = 6; // how fast the camera catches up with the player (higher = stiffer)
-export const ALARM_SHAKE = 14; // screen shake when a failed mini-game alarms a teacher
-export const ALARM_NEAR_DIST = TILE * 5; // alarmed teacher this close = full red glow
-// Proximity shake: any teacher closer than PROXIMITY_DIST shakes the screen,
-// the closer the stronger (up to PROXIMITY_MAX_SHAKE px when touching).
-export const PROXIMITY_DIST = TILE * 6;
-export const PROXIMITY_MAX_SHAKE = 8; // px
-export const PROXIMITY_CURVE = 1.90; // >1 = gentle far away, strong only when really close
 
 /**
  * Scene params:

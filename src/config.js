@@ -35,7 +35,7 @@ export const FLASHLIGHT = {
 };
 
 export const DARKNESS = {
-    opacity: 0.985,
+    opacity: 0.95   ,
 };
 
 export const TEACHER = {
@@ -84,9 +84,43 @@ export const EXTRACTION = {
     failNoise: TILE * 12, // "TRZASK!" (missed latch / RAM pulled too hard)
     // with the flashlight ON everything is a bit easier (but the light gives you away)
     lightEase: 1.35,
-    viewRadius: TILE * 1.2, // what you still see around you while working
+    viewRadius: TILE * 2.5, // view circle while doing a mini-game (was 1.2, normal is FLASHLIGHT.nearRadius)
 };
 
 export const SOUND = {
     ringDuration: 0.9, // seconds for a ring to expand to full radius
 };
+
+// ================= VISION, RINGS, CAMERA, SCREEN EFFECTS =================
+// Quick map of everything vision-related:
+//   player view circle ............ FLASHLIGHT.nearRadius (normal), EXTRACTION.viewRadius (mini-game)
+//   player flashlight cone ........ FLASHLIGHT.range, FLASHLIGHT.fov
+//   darkness ...................... DARKNESS.opacity
+//   teacher vision cone ........... TEACHER.visionRange, TEACHER.visionFov (+ flashlightRangeMul / darkRangeMul)
+//   noise rings ................... SOUND.ringDuration, noise radii in EXTRACTION
+//   teacher ping ring ............. PING_* below
+
+// ---- teacher ping ring (entities/teacher.js) ----
+// Every PING_INTERVAL seconds a ring expands from each teacher's position
+// (visible through darkness), so the player always roughly knows where they are.
+export const PING_INTERVAL = 2.5; // seconds
+export const PING_RADIUS = 48; // px
+export const PING_COLOR = [255, 190, 70];
+export const PING_COLOR_ALARMED = [255, 60, 60];
+
+// ---- camera, alarm, proximity shake (scenes/game.js) ----
+export const CAMERA_LERP = 6; // how fast the camera catches up with the player (higher = stiffer)
+export const ALARM_SHAKE = 14; // screen shake when a failed mini-game alarms a teacher
+export const ALARM_NEAR_DIST = TILE * 5; // alarmed teacher this close = full red glow
+// Proximity shake: any teacher closer than PROXIMITY_DIST shakes the screen,
+// the closer the stronger (up to PROXIMITY_MAX_SHAKE px when touching).
+export const PROXIMITY_DIST = TILE * 6;
+export const PROXIMITY_MAX_SHAKE = 8; // px
+export const PROXIMITY_CURVE = 1.90; // >1 = gentle far away, strong only when really close
+
+// ---- screen effects (systems/fx.js, systems/extraction.js) ----
+export const UI_SHAKE_DECAY = 5; // how fast a shake burst fades out (1/s)
+export const FLASH_DECAY = 2.5; // how fast the red flash fades out (1/s)
+export const FLASH_MAX_OPACITY = 0.45;
+export const FAIL_SHAKE = 10; // px, mini-game mistake (camera + mini-game window)
+export const FAIL_FLASH = 0.6; // 0..1 red flash on a mistake

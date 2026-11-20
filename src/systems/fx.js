@@ -7,10 +7,7 @@
 
 const fx = { shake: 0, continuous: 0, flash: 0, flashColor: [255, 30, 30] };
 
-// ---- tweakables ----
-export const UI_SHAKE_DECAY = 5; // how fast UI shake fades out (1/s)
-export const FLASH_DECAY = 2.5; // how fast the red flash fades out (1/s)
-export const FLASH_MAX_OPACITY = 0.45;
+import { UI_SHAKE_DECAY, FLASH_DECAY, FLASH_MAX_OPACITY } from "../config.js"; // tweakables
 
 /**
  * @param {number} amount shake strength in px (camera + UI)

@@ -1,10 +1,7 @@
 import { EXTRACTION as X } from "../config.js";
 import { emitSound } from "./sound.js";
 import { screenShake, uiShakeOffset } from "./fx.js";
-
-// ---- tweakables ----
-export const FAIL_SHAKE = 10; // px, mini-game mistake (camera + this panel)
-export const FAIL_FLASH = 0.6; // 0..1 red flash on a mistake
+import { FAIL_SHAKE, FAIL_FLASH } from "../config.js"; // tweakables
 
 // RAM extraction mini-game (GDD 4.C), 4 stages. Every stage makes noise,
 // mistakes make a LOT of noise. Teachers in range come to check.
@@ -43,7 +40,8 @@ export function startExtraction(k, pc, player, onDone) {
         latches: 0,
     };
     const pr = pc.extract;
-    const box = k.vec2(k.width() / 2 - W / 2, k.height() / 2 - H / 2 + 40);
+    // window on the right side, so the player (screen centre, camera follows) stays visible
+    const box = k.vec2(k.width() - W - 70, k.height() / 2 - H / 2 + 40);
     const screwPos = [
         box.add(48, 48), box.add(W - 48, 48), box.add(W - 48, H - 48), box.add(48, H - 48),
     ];
