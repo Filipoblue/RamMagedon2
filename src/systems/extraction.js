@@ -1,7 +1,7 @@
 import { EXTRACTION as X } from "../config.js";
 import { emitSound } from "./sound.js";
 import { screenShake, uiShakeOffset } from "./fx.js";
-import { FAIL_SHAKE, FAIL_FLASH } from "../config.js"; // tweakables
+import { FAIL_SHAKE, FAIL_FLASH, MINIGAME_CAM_SHIFT, MINIGAME_GAP } from "../config.js"; // tweakables
 
 // RAM extraction mini-game (GDD 4.C), 4 stages. Every stage makes noise,
 // mistakes make a LOT of noise. Teachers in range come to check.
@@ -40,8 +40,12 @@ export function startExtraction(k, pc, player, onDone) {
         latches: 0,
     };
     const pr = pc.extract;
-    // window on the right side, so the player (screen centre, camera follows) stays visible
-    const box = k.vec2(k.width() - W - 70, k.height() / 2 - H / 2 + 40);
+    // Window right of the player. The camera shifts by MINIGAME_CAM_SHIFT, so the player
+    // ends up left of the screen centre and player + window are centred together.
+    const box = k.vec2(
+        k.width() / 2 - MINIGAME_CAM_SHIFT + X.viewRadius + MINIGAME_GAP,
+        k.height() / 2 - (H + 190) / 2 + 104, // whole backdrop (title .. footer) centred vertically
+    );
     const screwPos = [
         box.add(48, 48), box.add(W - 48, 48), box.add(W - 48, H - 48), box.add(48, H - 48),
     ];
@@ -259,7 +263,7 @@ function drawUI(k, st, pr, box, screwPos) {
     else k.drawRect({ pos: box, width: W, height: H, color: rgb([20, 70, 40]) });
     const ram = ramRect(box, stage === "pull" ? st.offset : 0);
     if (pr.stage <= 3) {
-        k.drawRect({ pos: box.add(60, 130), width: 240, height: 14, color: rgb([30, 30, 30]) }); // slot
+        if (!art("pc_board")) k.drawRect({ pos: box.add(60, 130), width: 240, height: 14, color: rgb([30, 30, 30]) }); // slot (drawn in pc_board art)
         if (art("pc_ram")) k.drawSprite({ sprite: "pc_ram", pos: ram.pos, width: ram.w, height: ram.h });
         else {
             k.drawRect({ pos: ram.pos, width: ram.w, height: ram.h, color: rgb([40, 120, 60]), outline: { width: 2, color: rgb([200, 200, 120]) } });

@@ -6,6 +6,7 @@ import { spawnTeacher } from "../entities/teacher.js";
 import { addLighting } from "../systems/lighting.js";
 import { startExtraction } from "../systems/extraction.js";
 import { addFx, screenShake, uiShakeOffset, shakeOffset, setContinuousShake } from "../systems/fx.js";
+import { MINIGAME_CAM_SHIFT } from "../config.js";
 import { CAMERA_LERP, ALARM_SHAKE, ALARM_NEAR_DIST, PROXIMITY_DIST, PROXIMITY_MAX_SHAKE, PROXIMITY_CURVE } from "../config.js";
 
 const INTERACT_DIST = TILE * 1.3;
@@ -27,7 +28,9 @@ export function gameScene(k) {
         k.setCamPos(camBase);
         k.onUpdate(() => {
             const t = 1 - Math.exp(-CAMERA_LERP * k.dt());
-            camBase = camBase.lerp(player.pos, t);
+            // during a mini-game look a bit to the right (see MINIGAME_CAM_SHIFT)
+            const target = player.busy ? player.pos.add(MINIGAME_CAM_SHIFT, 0) : player.pos;
+            camBase = camBase.lerp(target, t);
             k.setCamPos(camBase.add(shakeOffset(k)));
         });
 

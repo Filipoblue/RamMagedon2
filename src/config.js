@@ -110,6 +110,10 @@ export const PING_COLOR_ALARMED = [255, 60, 60];
 
 // ---- camera, alarm, proximity shake (scenes/game.js) ----
 export const CAMERA_LERP = 6; // how fast the camera catches up with the player (higher = stiffer)
+// During a mini-game the camera slides right by this many px, so the player sits left of
+// the centre and the mini-game window right of them: the pair is centred on screen.
+export const MINIGAME_CAM_SHIFT = 230;
+export const MINIGAME_GAP = 70; // px between the player's view circle and the mini-game window
 export const ALARM_SHAKE = 14; // screen shake when a failed mini-game alarms a teacher
 export const ALARM_NEAR_DIST = TILE * 5; // alarmed teacher this close = full red glow
 // Proximity shake: any teacher closer than PROXIMITY_DIST shakes the screen,

@@ -23,11 +23,13 @@ k.loadFont("minecraftia", "fonts/Minecraftia-Regular.ttf", { filter: "nearest" }
 // Extraction close-up art (optional, placeholders are drawn when missing).
 // Sizes on screen: pc_panel / pc_board 360x240, pc_ram 200x30, pc_screw 24x24
 // Draw them 1:1 in these sizes, or exactly half (180x120, 100x15, 12x12) for chunky 2x pixels.
-// k.loadSprite("pc_panel", "sprites/pc_panel.png");
-// k.loadSprite("pc_board", "sprites/pc_board.png");
+k.loadSprite("pc_panel", "sprites/pc_panel.png");
+k.loadSprite("pc_board", "sprites/pc_board.png");
 // k.loadSprite("pc_ram", "sprites/pc_ram.png");
 // k.loadSprite("pc_screw", "sprites/pc_screw.png");
-// Room art (see `background` in src/level/rooms.js), e.g.:
+// Room art (see `background` in src/level/rooms.js). Square Tiled exports are fine:
+// the sprite is drawn at its natural size from the top-left corner, transparent padding is ignored.
+k.loadSprite("tutorial", "sprites/tutorial.png");
 // k.loadSprite("sala1", "maps/sala1.png");
 
 // Dev only: access the engine from the browser console (e.g. __k.get("player")[0]).
