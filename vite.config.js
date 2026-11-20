@@ -24,8 +24,9 @@ export default defineConfig({
         sourcemap: true,
         rollupOptions: {
             output: {
-                manualChunks: {
-                    kaplay: ["kaplay"],
+                // Vite 8 (rolldown) needs manualChunks as a function
+                manualChunks(id) {
+                    if (id.includes("node_modules/kaplay")) return "kaplay";
                 },
             },
         },

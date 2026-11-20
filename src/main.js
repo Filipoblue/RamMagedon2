@@ -1,11 +1,25 @@
 import kaplay from "kaplay";
-// import "kaplay/global"; // uncomment if you want to use without the k. prefix
+import { WIDTH, HEIGHT, COLORS } from "./config.js";
+import { gameScene } from "./scenes/game.js";
+import { menuScenes } from "./scenes/menus.js";
 
-const k = kaplay();
+const k = kaplay({
+    width: WIDTH,
+    height: HEIGHT,
+    letterbox: true,
+    background: COLORS.floor,
+    global: false,
+});
 
-k.loadRoot("./"); // A good idea for Itch.io publishing later
-k.loadSprite("bean", "sprites/bean.png");
+// Right mouse button toggles the flashlight -> no browser context menu.
+k.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-k.add([k.pos(120, 80), k.sprite("bean")]);
+k.loadRoot("./");
 
-k.onClick(() => k.addKaboom(k.mousePos()));
+// Dev only: access the engine from the browser console (e.g. __k.get("player")[0]).
+if (import.meta.env.DEV) window.__k = k;
+
+menuScenes(k);
+gameScene(k);
+
+k.go("menu");
