@@ -1,36 +1,46 @@
 import { TILE } from "../config.js";
-import { ROOMS, TOTAL_RAM } from "../level/rooms.js";
+import { LEVELS, TOTAL_RAM } from "../level/rooms.js";
 import { buildLevel } from "../level/level.js";
 import { spawnPlayer } from "../entities/player.js";
 import { spawnTeacher } from "../entities/teacher.js";
 import { addLighting } from "../systems/lighting.js";
-import { startSkillCheck } from "../systems/skillcheck.js";
+import { startExtraction } from "../systems/extraction.js";
 
 const INTERACT_DIST = TILE * 1.3;
 
+/**
+ * Scene params:
+ *   levelIndex - which entry of LEVELS to play (default 0 = tutorial)
+ *   run        - stats carried between levels { ram, startTime }
+ */
 export function gameScene(k) {
-    k.scene("game", () => {
-        k.setLayers(["world", "dark", "glow", "ui"], "world");
-
-        const room = ROOMS[0]; // TODO: rooms 2-3 (one big map + camera follow)
+    k.scene("game", ({ levelIndex = 0, run = null } = {}) => {
+        const room = LEVELS[levelIndex];
         const level = buildLevel(k, room);
+        // maps are smaller than the screen -> centre the camera on the map
+        k.setCamPos(k.vec2(level.width / 2, level.height / 2));
+
         const player = spawnPlayer(k, level.playerStart);
 
-        const run = {
-            ram: 0, // stolen in total
-            roomRam: 0, // stolen in this room
-            startTime: k.time(),
-            over: false,
+        run ??= { ram: 0, startTime: k.time() };
+        const retryRun = { ...run }; // snapshot for "try again" on this level
+        const state = { roomRam: 0, over: false };
+
+        const caught = () => {
+            if (state.over) return;
+            state.over = true;
+            k.go("gameover", { ram: run.ram, levelIndex, retryRun });
+        };
+        const nextLevel = () => {
+            if (state.over) return;
+            state.over = true;
+            if (levelIndex + 1 < LEVELS.length) k.go("game", { levelIndex: levelIndex + 1, run });
+            else k.go("win", { ram: run.ram, time: k.time() - run.startTime });
+            // TODO: GDD finale - after the last room: alarm + 20 s escape to the roof
         };
 
-        const endGame = (sceneName) => {
-            if (run.over) return;
-            run.over = true;
-            k.go(sceneName, { ram: run.ram, time: k.time() - run.startTime });
-        };
-
-        for (const wp of level.patrols) {
-            spawnTeacher(k, wp, { level, player, onCaught: () => endGame("gameover") });
+        for (const t of level.teachers) {
+            spawnTeacher(k, t, { level, player, onCaught: caught });
         }
 
         addLighting(k, level, player);
@@ -44,20 +54,20 @@ export function gameScene(k) {
             const pc = nearestComputer(level, player);
             if (!pc) return;
             player.busy = true;
-            startSkillCheck(k, pc, player, (ok) => {
+            startExtraction(k, pc, player, (ok) => {
                 player.busy = false;
                 if (!ok) return;
                 pc.hasRam = false;
                 run.ram++;
-                run.roomRam++;
-                if (run.roomRam >= room.ramToOpen) level.openDoors();
+                state.roomRam++;
+                if (state.roomRam >= room.ramToOpen) level.openDoors();
             });
         });
 
-        // Exit: walking out through the opened door.
-        // TODO: later this leads to room 2 / 3, and after 8/8 the 20 s escape to the roof.
+        // Exit: walking out of the map through the opened door.
         player.onUpdate(() => {
-            if (player.pos.x > level.width - TILE / 2 || player.pos.x < 0) endGame("win");
+            const { x, y } = player.pos;
+            if (x < 0 || y < 0 || x > level.width || y > level.height) nextLevel();
         });
 
         // ---- "?" / "!" over teachers (glow layer = visible in the dark) ----
@@ -70,28 +80,39 @@ export function gameScene(k) {
                         const p = t.pos.add(0, -28);
                         k.drawRect({ pos: p.add(-14, 0), width: 28, height: 4, color: k.rgb(40, 40, 40) });
                         k.drawRect({ pos: p.add(-14, 0), width: 28 * t.detection, height: 4, color: k.rgb(255, 60, 60) });
-                        k.drawText({ text: t.detection > 0.6 ? "!" : "?", pos: p.add(0, -16), size: 16, anchor: "center", color: k.rgb(255, 220, 80) });
+                        k.drawText({ text: t.detection > 0.6 ? "!" : "?", pos: p.add(0, -14), size: 24, anchor: "center", color: k.rgb(255, 220, 80) });
                     }
                 },
             },
         ]);
 
         // ---- HUD ----
-        const hud = k.add([k.layer("ui"), k.pos(12, 10), k.fixed(), k.text("", { size: 18 }), k.color(220, 255, 220)]);
+        const hud = k.add([k.layer("ui"), k.pos(12, 8), k.fixed(), k.text("", { size: 24 }), k.color(220, 255, 220)]);
         k.add([
             k.layer("ui"),
-            k.pos(12, k.height() - 26),
+            k.pos(12, k.height() - 22),
             k.fixed(),
-            k.text("WASD ruch · mysz celuje · PPM/F latarka · E kradnij RAM · F2 debug: ciemność", { size: 14 }),
+            k.text("WASD ruch · mysz celuje · PPM/F latarka · E kradnij RAM · F2 debug: ciemność · F3 kolizje (mapa PNG)", { size: 24 }),
             k.opacity(0.6),
         ]);
+        if (room.tips) {
+            k.add([
+                k.layer("ui"),
+                k.pos(k.width() - 12, 8),
+                k.anchor("topright"),
+                k.fixed(),
+                k.text(room.tips.join("\n"), { size: 24, align: "right", lineSpacing: 4 }),
+                k.color(255, 230, 120),
+            ]);
+        }
         hud.onUpdate(() => {
             const pc = nearestComputer(level, player);
             hud.text =
-                `RAM: ${run.ram}/${TOTAL_RAM}   ${room.name} (${run.roomRam}/${room.ramToOpen})` +
+                `${room.name}   (${levelIndex + 1}/${LEVELS.length})\n` +
+                `RAM: ${run.ram}/${TOTAL_RAM}   w tej sali: ${state.roomRam}/${room.ramToOpen}` +
                 `   Latarka: ${player.flashlightOn ? "ON" : "OFF"}` +
-                (pc ? "   E: wyjmij RAM" : "") +
-                (level.doors.some((d) => d.isOpen) ? "   Drzwi otwarte! ->" : "");
+                (pc && !player.busy ? "   E: otwórz komputer" : "") +
+                (level.doors.some((d) => d.isOpen) ? "   Drzwi otwarte! Wyjdź z sali." : "");
         });
     });
 }

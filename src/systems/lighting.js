@@ -1,4 +1,4 @@
-import { FLASHLIGHT, DARKNESS, COLORS } from "../config.js";
+import { FLASHLIGHT, DARKNESS, COLORS, EXTRACTION } from "../config.js";
 import { visibilityFan } from "./raycast.js";
 
 const DEG = Math.PI / 180;
@@ -23,9 +23,10 @@ export function addLighting(k, level, player) {
         {
             update() {
                 const { x, y } = player.pos;
-                state.near = visibilityFan(x, y, 0, Math.PI * 2, FLASHLIGHT.nearRadius, FLASHLIGHT.nearRays, level.segments);
-                // TODO(P2): during RAM extraction the view should shrink almost to zero
-                state.cone = player.flashlightOn
+                // While extracting RAM the view shrinks almost to zero (GDD 2.2).
+                const nearR = player.busy ? EXTRACTION.viewRadius : FLASHLIGHT.nearRadius;
+                state.near = visibilityFan(x, y, 0, Math.PI * 2, nearR, FLASHLIGHT.nearRays, level.segments);
+                state.cone = player.flashlightOn && !player.busy
                     ? visibilityFan(x, y, player.aimAngle, FLASHLIGHT.fov * DEG, FLASHLIGHT.range, FLASHLIGHT.rays, level.segments)
                     : [];
             },
@@ -36,9 +37,9 @@ export function addLighting(k, level, player) {
                 k.drawSubtracted(
                     () => {
                         k.drawRect({
-                            pos: k.vec2(-50, -50),
-                            width: level.width + 100,
-                            height: level.height + 100,
+                            pos: k.vec2(-2000, -2000),
+                            width: level.width + 4000,
+                            height: level.height + 4000,
                             color: k.rgb(0, 0, 0),
                             opacity: DARKNESS.opacity,
                         });

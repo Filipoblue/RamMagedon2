@@ -3,19 +3,22 @@ import { visibilityFan, hasLineOfSight, inCone } from "../systems/raycast.js";
 
 const DEG = Math.PI / 180;
 
-// AI states from the GDD. Only PATROL is implemented in the skeleton.
+// AI states from the GDD.
 export const AI = {
-    PATROL: "PATROL",
-    SUSPICIOUS: "SUSPICIOUS", // TODO(P3): walk to noise/light source, look around 3 s
+    PATROL: "PATROL", // walk waypoints
+    SUSPICIOUS: "SUSPICIOUS", // heard a noise: walk there, look around, go back
     CHASE: "CHASE", // TODO(P3): run at the player, touch = game over
 };
 
 /**
- * @param {{x:number,y:number}[]} waypoints world positions
+ * @param {{waypoints: Vec2[], speed?: number}} cfg route from the level data
  * @param {object} ctx { level, player, onCaught }
  */
-export function spawnTeacher(k, waypoints, ctx) {
+export function spawnTeacher(k, cfg, ctx) {
     const s = TEACHER.size;
+    const waypoints = cfg.waypoints;
+    const speed = cfg.speed ?? TEACHER.speed;
+    const { level } = ctx;
     const t = k.add([
         k.pos(waypoints[0]),
         k.rect(s, s),
@@ -32,9 +35,17 @@ export function spawnTeacher(k, waypoints, ctx) {
             wait: 0,
             detection: 0, // 0..1, reaching 1 = caught
             cone: [], // cached vision polygon for drawing
-            // Hook for sound system (P3): teacher hears something at pos.
-            hearNoise(pos, loudness) {
-                // TODO(P3): switch to SUSPICIOUS and walk to pos
+            path: [], // current grid path (SUSPICIOUS / returning)
+            investigate: 0, // seconds left looking around at the noise
+            lookBase: 0,
+            noisePos: null,
+            /** Called by emitSound() when this teacher is in range. */
+            hearNoise(pos) {
+                if (t.state === AI.CHASE) return;
+                t.state = AI.SUSPICIOUS;
+                t.noisePos = pos;
+                t.investigate = 0;
+                t.path = level.findPath(t.pos, pos);
             },
         },
     ]);
@@ -43,12 +54,16 @@ export function spawnTeacher(k, waypoints, ctx) {
         const dt = k.dt();
         switch (t.state) {
             case AI.PATROL:
-                patrol(k, t, waypoints, dt);
+                if (t.path.length) followPath(t, dt, speed); // walking back to the route
+                else patrol(t, waypoints, dt, speed);
                 break;
-            // TODO(P3): case AI.SUSPICIOUS / AI.CHASE
+            case AI.SUSPICIOUS:
+                suspicious(t, waypoints, dt, level, speed);
+                break;
+            // TODO(P3): case AI.CHASE
         }
 
-        const { level, player } = ctx;
+        const { player } = ctx;
         const fov = TEACHER.visionFov * DEG;
         const range = visionRange(player);
         t.cone = visibilityFan(t.pos.x, t.pos.y, t.facing, fov, range, TEACHER.visionRays, level.segments);
@@ -57,7 +72,9 @@ export function spawnTeacher(k, waypoints, ctx) {
             inCone(t.pos.x, t.pos.y, t.facing, fov, range, player.pos.x, player.pos.y) &&
             hasLineOfSight(t.pos.x, t.pos.y, player.pos.x, player.pos.y, level.segments);
 
-        if (sees) t.detection += dt / TEACHER.detectTime;
+        // a suspicious teacher spots you faster
+        const mul = t.state === AI.SUSPICIOUS ? 1.5 : 1;
+        if (sees) t.detection += (dt / TEACHER.detectTime) * mul;
         else t.detection -= dt * TEACHER.detectDecay;
         t.detection = k.clamp(t.detection, 0, 1);
 
@@ -68,15 +85,13 @@ export function spawnTeacher(k, waypoints, ctx) {
     t.onCollide("player", () => ctx.onCaught());
 
     t.onDraw(() => {
-        // vision cone (drawn in local space -> subtract own pos)
         if (t.cone.length > 2) {
             k.drawPolygon({
                 pts: t.cone.map((p) => k.vec2(p.x - t.pos.x, p.y - t.pos.y)),
-                color: k.rgb(...COLORS.teacherCone),
+                color: k.rgb(...(t.state === AI.PATROL ? COLORS.teacherCone : COLORS.teacherConeAlert)),
                 opacity: 0.18 + t.detection * 0.3,
             });
         }
-        // facing nose
         const a = t.facing;
         const tip = k.vec2(Math.cos(a), Math.sin(a)).scale(s * 0.85);
         const l = k.vec2(Math.cos(a + 2.4), Math.sin(a + 2.4)).scale(s * 0.35);
@@ -91,7 +106,7 @@ function visionRange(player) {
     return TEACHER.visionRange * (player.flashlightOn ? TEACHER.flashlightRangeMul : TEACHER.darkRangeMul);
 }
 
-function patrol(k, t, waypoints, dt) {
+function patrol(t, waypoints, dt, speed) {
     if (waypoints.length < 2) return;
     if (t.wait > 0) {
         t.wait -= dt;
@@ -99,19 +114,51 @@ function patrol(k, t, waypoints, dt) {
         return;
     }
     const target = waypoints[t.wpIndex];
-    const to = target.sub(t.pos);
-    const dist = to.len();
-    if (dist < 2) {
+    if (moveTo(t, target, speed, dt)) {
         t.wpIndex = (t.wpIndex + 1) % waypoints.length;
         t.wait = TEACHER.waitAtWaypoint;
+    }
+}
+
+function suspicious(t, waypoints, dt, level, speed) {
+    if (t.path.length) {
+        followPath(t, dt, speed * TEACHER.suspiciousSpeedMul);
+        if (!t.path.length) {
+            // arrived: look around towards the noise source
+            t.investigate = TEACHER.investigateTime;
+            const to = t.noisePos.sub(t.pos);
+            t.lookBase = to.len() > 1 ? Math.atan2(to.y, to.x) : t.facing;
+        }
         return;
     }
+    if (t.investigate > 0) {
+        t.investigate -= dt;
+        // sweep left/right around the noise direction
+        const elapsed = TEACHER.investigateTime - t.investigate;
+        t.facing = t.lookBase + Math.sin(elapsed * 2.2) * 0.9;
+        return;
+    }
+    // nothing found -> walk back to the patrol route
+    t.state = AI.PATROL;
+    t.path = level.findPath(t.pos, waypoints[t.wpIndex]);
+}
+
+function followPath(t, dt, speed) {
+    if (moveTo(t, t.path[0], speed, dt)) t.path.shift();
+}
+
+/** Step towards target, turning to face it. Returns true when reached. */
+function moveTo(t, target, speed, dt) {
+    const to = target.sub(t.pos);
+    const dist = to.len();
+    if (dist < 2) return true;
     turnTowards(t, Math.atan2(to.y, to.x), dt);
-    t.pos = t.pos.add(to.unit().scale(Math.min(dist, TEACHER.speed * dt)));
+    t.pos = t.pos.add(to.unit().scale(Math.min(dist, speed * dt)));
+    return false;
 }
 
 function turnTowards(t, goal, dt) {
-    let diff = Math.atan2(Math.sin(goal - t.facing), Math.cos(goal - t.facing));
+    const diff = Math.atan2(Math.sin(goal - t.facing), Math.cos(goal - t.facing));
     const step = TEACHER.turnSpeed * dt;
     t.facing += Math.abs(diff) <= step ? diff : Math.sign(diff) * step;
 }

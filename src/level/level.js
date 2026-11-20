@@ -1,8 +1,13 @@
 import { TILE, COLORS } from "../config.js";
 import { buildSegments } from "../systems/raycast.js";
 
+// Map legend: see src/level/rooms.js.
+// Only walls, cabinets and closed doors block light and sight.
+// Desks ("=", "C") are low: light and teachers' eyes pass over them.
 const OPAQUE = new Set(["#", "S", "D"]);
-const SOLID = new Set(["#", "S", "D", "b", "C"]);
+// Glass ("G") blocks movement, but not light/sight.
+const SOLID = new Set(["#", "S", "D", "=", "C", "G"]);
+const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 /**
  * Spawns the tiles of a room and returns the level API used by the rest of the game.
@@ -18,8 +23,17 @@ export function buildLevel(k, room) {
     const grid = room.map.map((r) => r.split(""));
     const at = (x, y) => (y < 0 || y >= rows || x < 0 || x >= cols ? "#" : grid[y][x]);
 
+    // floor (the area outside the map stays black)
+    k.add([k.pos(0, 0), k.rect(cols * TILE, rows * TILE), k.color(...COLORS.floor), k.z(-20), k.layer("world")]);
+
+    // Optional PNG art for the whole room. The ASCII grid above stays the
+    // collision + light layer; tiles become invisible (F3 shows them for debugging).
+    if (room.background) {
+        k.add([k.sprite(room.background), k.pos(0, 0), k.z(-10), k.layer("world")]);
+    }
+
     let playerStart = k.vec2(TILE * 2, TILE * 2);
-    const waypoints = [];
+    const waypoints = {}; // letter -> world pos
     const doors = [];
     const computers = [];
 
@@ -31,15 +45,30 @@ export function buildLevel(k, room) {
 
             if (ch === "#") spawnBlock(k, p, COLORS.wall, ["wall", "opaque"]);
             else if (ch === "S") spawnBlock(k, p, COLORS.cabinet, ["cabinet", "opaque"], 4);
-            else if (ch === "b") spawnBlock(k, p, COLORS.desk, ["desk"], 3);
+            else if (ch === "=") spawnBlock(k, p, COLORS.desk, ["desk"], 3);
+            else if (ch === "G") spawnGlass(k, p);
             else if (ch === "C") computers.push(spawnComputer(k, p, x, y));
             else if (ch === "D") doors.push(spawnDoor(k, p, x, y));
             else if (ch === "P") playerStart = center;
-            else if (/[1-9]/.test(ch)) waypoints.push({ n: Number(ch), pos: center });
+            else if (/[a-z]/.test(ch)) waypoints[ch] = center;
         }
     }
 
-    waypoints.sort((a, b) => a.n - b.n);
+    // Teacher routes: "abcd" = walk a -> b -> c -> d -> a ...
+    const teachers = (room.teachers ?? []).map((t) => {
+        const cfg = typeof t === "string" ? { route: t } : t;
+        const pts = [...cfg.route].map((ch) => {
+            if (!waypoints[ch]) throw new Error(`${room.name}: route "${cfg.route}" uses '${ch}', which is not on the map`);
+            return waypoints[ch];
+        });
+        return { ...cfg, waypoints: pts };
+    });
+
+    if (room.background) {
+        const colliders = k.get("collider");
+        colliders.forEach((c) => (c.hidden = true));
+        k.onKeyPress("f3", () => colliders.forEach((c) => c.exists() && (c.hidden = !c.hidden)));
+    }
 
     const level = {
         cols,
@@ -47,12 +76,48 @@ export function buildLevel(k, room) {
         width: cols * TILE,
         height: rows * TILE,
         playerStart,
-        // One patrol for now. TODO(P3): several teachers -> use different digit ranges or room data.
-        patrols: waypoints.length ? [waypoints.map((w) => w.pos)] : [],
+        teachers, // [{ route, waypoints: Vec2[], speed? }]
         computers,
         doors,
-        segments: [],
+        segments: [], // everything that blocks light and sight (walls, cabinets, closed doors)
         isOpaque: (x, y) => OPAQUE.has(at(x, y)),
+        isSolid: (x, y) => SOLID.has(at(x, y)),
+        /**
+         * Grid path (8 directions, no corner cutting) between two world points.
+         * If `to` is inside a solid tile (e.g. a PC), goes to the nearest free tile next to it.
+         * @returns {Vec2[]} world positions of tile centres, [] if unreachable
+         */
+        findPath(from, to) {
+            const toCell = (p) => [Math.floor(p.x / TILE), Math.floor(p.y / TILE)];
+            const [sx, sy] = toCell(from);
+            let [gx, gy] = toCell(to);
+            if (level.isSolid(gx, gy)) {
+                const free = NEIGHBOURS.map(([dx, dy]) => [gx + dx, gy + dy]).filter(([x, y]) => !level.isSolid(x, y));
+                if (!free.length) return [];
+                free.sort((a, b) => Math.hypot(a[0] - sx, a[1] - sy) - Math.hypot(b[0] - sx, b[1] - sy));
+                [gx, gy] = free[0];
+            }
+            const key = (x, y) => y * cols + x;
+            const prev = new Map([[key(sx, sy), -1]]);
+            const queue = [[sx, sy]];
+            while (queue.length) {
+                const [x, y] = queue.shift();
+                if (x === gx && y === gy) break;
+                for (const [dx, dy] of NEIGHBOURS) {
+                    const nx = x + dx, ny = y + dy;
+                    if (level.isSolid(nx, ny) || prev.has(key(nx, ny))) continue;
+                    if (dx && dy && (level.isSolid(x + dx, y) || level.isSolid(x, y + dy))) continue;
+                    prev.set(key(nx, ny), key(x, y));
+                    queue.push([nx, ny]);
+                }
+            }
+            if (!prev.has(key(gx, gy))) return [];
+            const path = [];
+            for (let c = key(gx, gy); c !== key(sx, sy); c = prev.get(c)) {
+                path.push(k.vec2((c % cols) * TILE + TILE / 2, Math.floor(c / cols) * TILE + TILE / 2));
+            }
+            return path.reverse();
+        },
         rebuildSegments() {
             level.segments = buildSegments(cols, rows, TILE, level.isOpaque);
         },
@@ -75,11 +140,19 @@ function spawnBlock(k, p, color, tags, inset = 0) {
         k.pos(p.x + inset, p.y + inset),
         k.rect(TILE - inset * 2, TILE - inset * 2),
         k.color(...color),
+        k.opacity(1),
         k.area(),
         k.body({ isStatic: true }),
         k.layer("world"),
+        "collider",
         ...tags,
     ]);
+}
+
+function spawnGlass(k, p) {
+    const g = spawnBlock(k, p, COLORS.glass, ["glass"]);
+    g.opacity = 0.35;
+    return g;
 }
 
 function spawnDoor(k, p, cx, cy) {

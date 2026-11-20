@@ -5,6 +5,7 @@
 		"build": "vite build",
 		"dev": "vite",
 		"preview": "vite preview",
+		"check-levels": "node scripts/check-levels.mjs",
 		"zip": "npm run build && mkdir -p dist && zip -r dist/game.zip dist -x \"**/.DS_Store\""
 	},
 	"dependencies": {
