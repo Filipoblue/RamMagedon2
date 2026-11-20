@@ -75,6 +75,9 @@ export function spawnTeacher(k, cfg, ctx) {
         }
 
         const { player } = ctx;
+        // Invisible unless inside the player's light (the map is faintly visible in the
+        // dark, teachers are not: only their ping / noise rings give them away).
+        t.hidden = ctx.lighting ? !ctx.lighting.isLit(t.pos.x, t.pos.y) : false;
         const fov = TEACHER.visionFov * DEG;
         const range = visionRange(player);
         t.cone = visibilityFan(t.pos.x, t.pos.y, t.facing, fov, range, TEACHER.visionRays, level.sightSegments);

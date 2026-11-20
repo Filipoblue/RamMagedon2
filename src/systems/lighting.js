@@ -59,5 +59,18 @@ export function addLighting(k, level, player) {
 
     k.onKeyPress("f2", () => (state.enabled = !state.enabled));
 
+    /** Is a world point inside the player's light (flashlight cone or the small circle)? */
+    state.isLit = (x, y) => !state.enabled || inPolygon(state.cone, x, y) || inPolygon(state.near, x, y);
+
     return state;
+}
+
+// even-odd point-in-polygon test (pts: [{x, y}, ...])
+function inPolygon(pts, x, y) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const a = pts[i], b = pts[j];
+        if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
 }

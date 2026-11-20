@@ -25,6 +25,7 @@ k.loadFont("minecraftia", "fonts/Minecraftia-Regular.ttf", { filter: "nearest" }
 // Draw them 1:1 in these sizes, or exactly half (180x120, 100x15, 12x12) for chunky 2x pixels.
 k.loadSprite("pc_panel", "sprites/pc_panel.png");
 k.loadSprite("pc_board", "sprites/pc_board.png");
+k.loadSprite("pc_panel_swipe", "sprites/pc_panel_swipe.png"); // panel art shown during the "slide" stage
 // k.loadSprite("pc_ram", "sprites/pc_ram.png");
 // k.loadSprite("pc_screw", "sprites/pc_screw.png");
 // Room art (see `background` in src/level/rooms.js). Square Tiled exports are fine:

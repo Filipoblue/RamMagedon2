@@ -35,7 +35,7 @@ export const FLASHLIGHT = {
 };
 
 export const DARKNESS = {
-    opacity: 0.95   ,
+    opacity: 0.8, // < 1: the map is faintly visible everywhere (teachers stay hidden unless lit)
 };
 
 export const TEACHER = {
@@ -63,27 +63,21 @@ export const TEACHER = {
 export const EXTRACTION = {
     // 1) unscrew 4 screws: grab the arrow next to a screw and drag it one full circle
     screwHandleRadius: 34, // px, circle the arrow travels on
+    showScrewGuides: true, // false = hide the drawn ring + arrow (when the panel art has engraved arrows)
     screwNoise: TILE * 3, // each finished screw
-    // 2) slide the side panel off: drag it to the right, slowly
+    // 2) slide the side panel off: drag it to the right
     panelDistance: 220, // px
-    panelMinSpeed: 70, // px/s; slower = the panel sticks and does not move
-    panelMaxSpeed: 420, // px/s; faster = "BRZDĘK!"
     panelNoise: TILE * 5,
-    panelFailNoise: TILE * 10,
     // 3) open 2 RAM latches: timing bar, Space/E in the green zone
     latches: 2,
     latchZone: 0.16, // zone width (fraction of the bar)
     latchNoise: TILE * 4,
     needleSpeedLight: 0.7, // bar-widths per second, flashlight ON (easier)
     needleSpeedDark: 1.25, // flashlight OFF (harder)
-    // 4) pull the RAM out: drag it up, slowly
+    // 4) pull the RAM out: drag it up
     pullDistance: 110, // px
-    pullMinSpeed: 50, // px/s
-    pullMaxSpeed: 260, // px/s
     pullNoise: TILE * 3,
-    failNoise: TILE * 12, // "TRZASK!" (missed latch / RAM pulled too hard)
-    // with the flashlight ON everything is a bit easier (but the light gives you away)
-    lightEase: 1.35,
+    failNoise: TILE * 12, // "TRZASK!" (missed latch)
     viewRadius: TILE * 2.5, // view circle while doing a mini-game (was 1.2, normal is FLASHLIGHT.nearRadius)
 };
 

@@ -51,11 +51,11 @@ export function gameScene(k) {
             // TODO: GDD finale - after the last room: alarm + 20 s escape to the roof
         };
 
+        const lighting = addLighting(k, level, player);
         for (const t of level.teachers) {
-            spawnTeacher(k, t, { level, player, onCaught: caught });
+            spawnTeacher(k, t, { level, player, lighting, onCaught: caught });
         }
 
-        addLighting(k, level, player);
         addFx(k);
 
         // ---- input ----

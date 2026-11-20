@@ -8,19 +8,19 @@ import { FAIL_SHAKE, FAIL_FLASH, MINIGAME_CAM_SHIFT, MINIGAME_GAP } from "../con
 //
 //  1. ŚRUBKI   grab the arrow next to a screw (LMB) and drag it one full circle
 //              around the screw (4 screws). Each screw makes a small noise.
-//  2. PANEL    grab the side panel and drag it right. Too fast -> "BRZDĘK!".
+//  2. PANEL    grab the side panel and drag it to the right.
 //  3. ZATRZASKI timing bar x2, Space/E in the green zone. Miss -> "TRZASK!".
-//  4. RAM      grab the RAM stick and pull it up slowly. Too fast -> "TRZASK!".
+//  4. RAM      grab the RAM stick and drag it up.
 //
 // Esc aborts. Progress is stored on the PC (except a half-dragged panel / stick).
-// With the flashlight ON everything is easier (EXTRACTION.lightEase).
+// With the flashlight ON the latch needle is slower (easier).
 
 const STAGES = ["screws", "panel", "latches", "pull"];
 const TITLES = {
-    screws: "Odkręć 4 śrubki: złap LPM żółtą strzałkę i obróć ją raz dookoła śrubki",
-    panel: "Zsuń panel boczny: chwyć LPM i powoli przeciągnij w prawo",
-    latches: "Odepnij zatrzaski RAM: SPACJA / E w zielonej strefie",
-    pull: "Wyciągnij RAM: chwyć LPM i powoli pociągnij w górę",
+    screws: "Odkręć śrubki",
+    panel: "Przesuń klapę w prawo",
+    latches: "Zatrzaski: SPACJA / E",
+    pull: "Wyciągnij RAM w górę",
 };
 
 // close-up view geometry (screen space)
@@ -49,7 +49,6 @@ export function startExtraction(k, pc, player, onDone) {
     const screwPos = [
         box.add(48, 48), box.add(W - 48, 48), box.add(W - 48, H - 48), box.add(48, H - 48),
     ];
-    const ease = () => (player.flashlightOn ? X.lightEase : 1);
 
     const st = {
         msg: "",
@@ -62,10 +61,7 @@ export function startExtraction(k, pc, player, onDone) {
         dragging: false,
         grab: null,
         offset: 0,
-        lastMouse: null,
-        speed: 0, // smoothed drag speed (px/s) for the meter
-        minSpeed: 0,
-        maxSpeed: 1,
+
         // latches
         needle: 0,
         dir: 1,
@@ -85,7 +81,7 @@ export function startExtraction(k, pc, player, onDone) {
     const fail = (label) => {
         noise(X.failNoise, label, [255, 90, 90]);
         screenShake(k, FAIL_SHAKE, FAIL_FLASH);
-        say(`${label} Za szybko!`, [255, 90, 90]);
+        say(label, [255, 90, 90]);
         st.cooldown = 0.5;
     };
     const newZone = () => (st.zoneStart = k.rand(0.1, 0.9 - X.latchZone));
@@ -112,7 +108,10 @@ export function startExtraction(k, pc, player, onDone) {
             return;
         }
         if (st.activeScrew < 0) {
-            st.activeScrew = screwPos.findIndex((_, i) => pr.screws[i] < 1 && handlePos(i).dist(m) < 24);
+            // grab the arrow, or anywhere on the ring around the screw
+            st.activeScrew = screwPos.findIndex((p, i) => pr.screws[i] < 1 &&
+                (handlePos(i).dist(m) < 24 || Math.abs(p.dist(m) - X.screwHandleRadius) < 16));
+            if (st.activeScrew >= 0) pr.handle[st.activeScrew] = angleTo(screwPos[st.activeScrew], m);
             return;
         }
         const i = st.activeScrew;
@@ -132,42 +131,19 @@ export function startExtraction(k, pc, player, onDone) {
         }
     };
 
-    // shared by panel (drag right) and pull (drag up)
-    // Speed meter: below minSpeed the part sticks, above maxSpeed it makes a loud noise.
-    const updateDrag = (dt, m, down, axis, distance, minSpeed, maxSpeed, hitbox, okNoise, failLabel) => {
-        st.minSpeed = minSpeed;
-        st.maxSpeed = maxSpeed * ease();
+    // shared by panel (drag right) and pull (drag up): just drag it far enough
+    const updateDrag = (m, down, axis, distance, hitbox, okNoise) => {
         if (!down) {
             st.dragging = false;
-            st.lastMouse = null;
-            st.speed *= 0.8;
             return;
         }
         if (!st.dragging) {
             if (!hitbox(m)) return;
             st.dragging = true;
             st.grab = m.sub(axis === "x" ? st.offset : 0, axis === "y" ? -st.offset : 0);
-            st.lastMouse = m;
             return;
         }
-        const v = m.sub(st.lastMouse).scale(1 / Math.max(dt, 1e-3));
-        st.lastMouse = m;
-        const speed = Math.max(0, axis === "x" ? v.x : -v.y);
-        st.speed += (speed - st.speed) * 0.35; // smoothed, so one jittery frame does not fail you
-        const want = Math.max(0, axis === "x" ? m.x - st.grab.x : st.grab.y - m.y);
-        if (want > st.offset && st.speed < minSpeed) {
-            // too slow: the part sticks, re-anchor the grab so it stays in place
-            const d = want - st.offset;
-            st.grab = st.grab.add(axis === "x" ? d : 0, axis === "y" ? -d : 0);
-        } else {
-            st.offset = want;
-        }
-        if (st.speed > st.maxSpeed) {
-            st.dragging = false;
-            st.offset = 0;
-            st.speed = 0;
-            return fail(failLabel);
-        }
+        st.offset = Math.max(0, axis === "x" ? m.x - st.grab.x : st.grab.y - m.y);
         if (st.offset >= distance) {
             noise(okNoise, null, [255, 230, 120]);
             nextStage();
@@ -209,11 +185,9 @@ export function startExtraction(k, pc, player, onDone) {
                 const stage = STAGES[pr.stage];
                 if (stage === "screws") updateScrews(dt, m, down);
                 else if (stage === "panel")
-                    updateDrag(dt, m, down, "x", X.panelDistance, X.panelMinSpeed, X.panelMaxSpeed,
-                        (p) => inRect(p, box.add(st.offset, 0), W, H), X.panelNoise, "BRZDĘK!");
+                    updateDrag(m, down, "x", X.panelDistance, (p) => inRect(p, box.add(st.offset, 0), W, H), X.panelNoise);
                 else if (stage === "pull")
-                    updateDrag(dt, m, down, "y", X.pullDistance, X.pullMinSpeed, X.pullMaxSpeed,
-                        (p) => inRect(p, ramRect(box, st.offset).pos.sub(10, 10), 220, 50), X.pullNoise, "TRZASK!");
+                    updateDrag(m, down, "y", X.pullDistance, (p) => inRect(p, ramRect(box, st.offset).pos.sub(10, 10), 220, 50), X.pullNoise);
                 else if (stage === "latches") {
                     const speed = player.flashlightOn ? X.needleSpeedLight : X.needleSpeedDark;
                     st.needle += st.dir * speed * dt;
@@ -279,7 +253,9 @@ function drawUI(k, st, pr, box, screwPos) {
     // side panel with screws (stages 1-2)
     if (pr.stage <= 1) {
         const off = stage === "panel" ? st.offset : 0;
-        if (art("pc_panel")) k.drawSprite({ sprite: "pc_panel", pos: box.add(off, 0), width: W, height: H });
+        // during the panel stage use the "swipe" version of the art if it is loaded
+        const panelArt = stage === "panel" && art("pc_panel_swipe") ? "pc_panel_swipe" : art("pc_panel");
+        if (panelArt) k.drawSprite({ sprite: panelArt, pos: box.add(off, 0), width: W, height: H });
         else {
             k.drawRect({ pos: box.add(off, 0), width: W, height: H, color: rgb([95, 100, 115]), outline: { width: 3, color: rgb([60, 60, 70]) } });
             k.drawText({ text: "PC", pos: box.add(off + W / 2, H / 2), size: 48, anchor: "center", color: rgb([70, 75, 90]) });
@@ -297,8 +273,8 @@ function drawUI(k, st, pr, box, screwPos) {
                     const sd = k.vec2(Math.cos(sa), Math.sin(sa)).scale(8);
                     k.drawLine({ p1: p.sub(sd), p2: p.add(sd), width: 3, color: rgb([60, 60, 70]) });
                 }
-                // track + progress arc
-                k.drawCircle({ pos: p, radius: R, fill: false, outline: { width: 2, color: rgb([70, 70, 85]) } });
+                // track + progress arc (the track is hidden when the art has engraved arrows)
+                if (X.showScrewGuides) k.drawCircle({ pos: p, radius: R, fill: false, outline: { width: 2, color: rgb([70, 70, 85]) } });
                 if (pr.screws[i] > 0)
                     k.drawCircle({ pos: p, radius: R, start: 0, end: 360 * pr.screws[i], fill: false, outline: { width: 3, color: rgb([120, 255, 140]) } });
                 // the arrow handle (tangent direction = which way to drag)
@@ -306,8 +282,10 @@ function drawUI(k, st, pr, box, screwPos) {
                 const t = k.vec2(-Math.sin(sa), Math.cos(sa));
                 const n = k.vec2(Math.cos(sa), Math.sin(sa));
                 const active = st.activeScrew === i;
-                k.drawCircle({ pos: h, radius: active ? 11 : 9, color: rgb(active ? [255, 255, 255] : [255, 210, 60]) });
-                k.drawTriangle({ p1: h.add(t.scale(16)), p2: h.add(n.scale(7)), p3: h.sub(n.scale(7)), color: rgb([255, 210, 60]) });
+                if (X.showScrewGuides || active) {
+                    k.drawCircle({ pos: h, radius: active ? 11 : 9, color: rgb(active ? [255, 255, 255] : [255, 210, 60]) });
+                    k.drawTriangle({ p1: h.add(t.scale(16)), p2: h.add(n.scale(7)), p3: h.sub(n.scale(7)), color: rgb([255, 210, 60]) });
+                }
             });
         }
     }
@@ -320,22 +298,6 @@ function drawUI(k, st, pr, box, screwPos) {
         k.drawRect({ pos: bar.add(st.needle * W - 2, -4), width: 4, height: 24, color: rgb([255, 255, 255]) });
         if (st.flash > 0) k.drawRect({ pos: bar, width: W, height: 16, color: rgb(st.flashColor), opacity: st.flash * 2 });
         k.drawText({ text: `Zatrzaski: ${pr.latches}/${X.latches}`, pos: bar.add(W, 22), size: 24, anchor: "topright", color: rgb([180, 180, 200]) });
-    }
-
-    // speed meter for the drag stages: grey = too slow, green = ok, red = too fast
-    if (stage === "panel" || stage === "pull") {
-        const bar = box.add(0, H + 18);
-        const top = st.maxSpeed * 1.4;
-        const x = (v) => (Math.min(v, top) / top) * W;
-        k.drawRect({ pos: bar, width: x(st.minSpeed), height: 16, color: rgb([90, 90, 100]) });
-        k.drawRect({ pos: bar.add(x(st.minSpeed), 0), width: x(st.maxSpeed) - x(st.minSpeed), height: 16, color: rgb([60, 200, 90]) });
-        k.drawRect({ pos: bar.add(x(st.maxSpeed), 0), width: W - x(st.maxSpeed), height: 16, color: rgb([200, 60, 60]) });
-        k.drawRect({ pos: bar.add(x(st.speed) - 2, -4), width: 4, height: 24, color: rgb([255, 255, 255]) });
-        k.drawText({ text: "za wolno", pos: bar.add(0, 22), size: 16, color: rgb([170, 170, 180]) });
-        k.drawText({ text: "za szybko", pos: bar.add(W, 22), size: 16, anchor: "topright", color: rgb([255, 120, 120]) });
-        const dragging = st.dragging && st.speed > 1;
-        if (dragging && st.speed < st.minSpeed)
-            k.drawText({ text: "Zacina się, szybciej!", pos: bar.add(W / 2, 22), size: 16, anchor: "top", color: rgb([255, 220, 120]) });
     }
 
     // feedback + footer
