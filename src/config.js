@@ -75,8 +75,8 @@ export const BOSS = {
     spriteScale: 1.5,
     spriteOffsetY: -13,
     // phase 1: steal the key from his belt (from behind, hold E)
-    stealDist: TILE * 1.6,
-    stealTime: 1.3, // s of holding E
+    stealDist: TILE * 2.6,
+    stealTime: 0.65, // s of holding E
     // ping-pong balls: E at the table takes them, Q throws one at the mouse
     balls: 3,
     throwRange: TILE * 7,
@@ -118,9 +118,9 @@ export const EXTRACTION = {
 };
 
 // ---- level 2 mini-games (src/minigames/) ----
-// Terminal 1: type random A/S/D sequences against the clock.
+// Terminal 1: type random W/A/S/D sequences against the clock.
 export const QTE = {
-    keys: ["a", "s", "d"],
+    keys: ["w", "a", "s", "d"],
     lengths: [4, 5, 6], // one entry per round (3 rounds)
     roundTime: 5, // s per round
     roundNoise: TILE * 3, // finished round (quiet beep)
@@ -257,7 +257,31 @@ export const PAPER = {
 export const HUD = {
     margin: 14, // px from the screen edge
     toastTime: 1.8, // s, "+1 RAM" messages
-    controlsTime: 9, // s, controls card at the start of the game (H toggles it)
+};
+
+// ---- quest notebook, Esc / H in game (ui/notebook.js) ----
+export const NOTEBOOK = {
+    width: 1120,
+    height: 480,
+    questWidth: 560, // px, left column (quest text wraps here)
+    lineSpacing: 2, // px between wrapped lines
+    rowH: 40, // px per controls row
+    inputDelay: 0.2, // s, ignore keys right after opening (Esc opened it)
+};
+
+// ---- guide arrows to the current target (ui/guide.js) ----
+export const GUIDE = {
+    color: [255, 220, 80],
+    size: 16, // px, arrow half-length
+    edge: 44, // px from the screen edge for off-screen targets
+    edgeTop: 190, // px from the top (stays under the HUD cards)
+    bob: 6, // px, bobbing of the arrow over an on-screen target
+};
+
+// ---- debug menu (systems/debugMenu.js): jump to any level / cutscene ----
+export const DEBUG = {
+    enabled: true, // false = no debug menu (e.g. for the final build)
+    key: "p",
 };
 
 // ---- main menu (scenes/menus.js) ----
@@ -276,6 +300,11 @@ export const CUTSCENE = {
     heliScale: 2, // the helicopter art is drawn this many times bigger than characters
     fadeTime: 0.8, // s, fade in / out
     walkSpeed: 120, // px/s, characters walking in cutscenes
+    // cutscene 2: the pilot calls. Put your own file at public/audio/ringtone.mp3
+    // (without it a synth ring plays); it is cut (with a short fade) after ringTime s.
+    ringtone: "audio/ringtone.mp3",
+    ringTime: 3.5,
+    ringVolume: 0.4, // 0..1, ringtone loudness (file and synth ring)
 };
 
 // ---- audio (systems/audio.js), Web Audio chiptune synth, no files needed ----

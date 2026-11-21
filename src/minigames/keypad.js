@@ -8,6 +8,7 @@ import { INK } from "../ui/paper.js";
 //             small noise, a wrong code is loud.
 //  2. ZWARCIE bridge 3 wires: a pulse runs along each wire, press Space / E (or click)
 //             while it is inside the gap. A miss sparks (noise). Each wire is faster.
+//             No leaving (Esc / click outside) during this stage.
 
 const W = 460, H = 300;
 const PAD = 58, GAP = 10; // keypad buttons
@@ -77,6 +78,8 @@ export function startKeypad(k, player, term, code, known, onDone) {
 
     openMinigame(k, player, {
         title: () => (pr.stage === "code" ? "Zamek: wpisz kod" : "Zamek: zewrzyj przewody"),
+        // leaving in the middle of the wire stage broke the game: once the code is in, finish it
+        canLeave: () => pr.stage !== "wires",
         hint: () => (pr.stage === "code" ? `Kod z terminali: ${known}` : "Spacja / E, gdy impuls jest w szczelinie"),
         width: W,
         height: H,

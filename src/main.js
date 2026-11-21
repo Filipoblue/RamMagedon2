@@ -5,6 +5,7 @@ import { menuScenes } from "./scenes/menus.js";
 import { cutsceneScene } from "./scenes/cutscene.js";
 import { initAudio } from "./systems/audio.js";
 import { loadStoryArt } from "./story/art.js";
+import { initDebugMenu } from "./systems/debugMenu.js";
 
 const k = kaplay({
     width: WIDTH,
@@ -12,7 +13,7 @@ const k = kaplay({
     letterbox: true,
     background: [0, 0, 0], // outside the map is pitch black (floor colour is drawn per map)
     global: false,
-    font: "handpixies", // default font for every text (loaded below)
+    font: "minecraftia", // default font for every text (loaded below); HandPixies only on the logo
     texFilter: "nearest", // crisp pixel art when scaled
     crisp: true, // no antialiasing / smoothing of the scaled canvas
 });
@@ -23,7 +24,10 @@ k.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 k.loadRoot("./");
 // HandPixies by HeavenCastro (public domain), with Polish letters and fixed metrics
 // added by scripts/build-font.py. Renders at about half the size given (see FONT in config.js).
-k.loadFont("handpixies", "fonts/HandPixies-PL.ttf", { filter: "nearest" });
+k.loadFont("handpixies", "fonts/HandPixies-PL.ttf", { filter: "nearest" }); // game logo only
+// Minecraftia (readable pixel font, has Polish letters): every other text. Same metrics as
+// HandPixies-PL above, so sizes from FONT in config.js work for both (32 = 2 px per font pixel).
+k.loadFont("minecraftia", "fonts/Minecraftia-Regular.ttf", { filter: "nearest" });
 // Extraction close-up art (optional, placeholders are drawn when missing).
 // Sizes on screen: pc_panel / pc_board 360x240, pc_ram 200x30, pc_screw 24x24
 // Draw them 1:1 in these sizes, or exactly half (180x120, 100x15, 12x12) for chunky 2x pixels.
@@ -57,5 +61,6 @@ k.setLayers(["world", "dark", "glow", "ui"], "world");
 menuScenes(k);
 cutsceneScene(k);
 gameScene(k);
+initDebugMenu(k); // P: jump to any level / cutscene (DEBUG in config.js)
 
 k.go("menu");

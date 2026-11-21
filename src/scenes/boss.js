@@ -152,7 +152,7 @@ export function addBossLevel(k, o) {
             return st.balls;
         },
         goal() {
-            if (st.escape) return "Uciekaj do wyjścia, prawy górny róg!";
+            if (st.escape) return "Uciekaj do wyjścia na lewej ścianie!";
             if (!st.balls) return "Weź piłeczki ze stołu do ping-ponga";
             return "Odwróć uwagę (Q) i zabierz klucz od tyłu";
         },

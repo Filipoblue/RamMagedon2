@@ -3,10 +3,10 @@
 // Do not use square brackets in texts (KAPLAY style tags).
 
 export const AUTHORS = [
-    "Tu wpisz autorów:",
-    "- Imię Nazwisko: kod, design",
-    "- Imię Nazwisko: grafika",
-    "- Imię Nazwisko: dźwięk, mapy",
+    "- Andrzej Moliński - grafiki",
+    "- Filip Paderecki - programista",
+    "- Hubert Suchenek - programista, tester",
+    "- Olaf Żyłowski - Lead programista"
 ];
 
 // name: shown above the text (null = no name tab), portrait: sprite from story/art.js,
@@ -47,11 +47,12 @@ export const STORY = {
 
     // ---- cutscene 2: after level 1, corridor ----
     escape: {
-        out: [
-            p("Mam RAM. Tera spływka."),
-        ],
-        hide: [
-            p("O kurde Gestapo idzie, ale raczej mnie nie zauważy."),
+        // the phone rings in the corridor (ringtone: CUTSCENE.ringtone in config.js)
+        call: [
+            p("Halo?"),
+            pi("Za halo to w morde walo. Co ty tyle robisz?! Zaraz zkończy mi sie tiktok do scrollowania."),
+            p("Spokojnie, mam RAM. Tera tylko zejść na dół."),
+            pi("To sie pospiesz albo cie tu zostawie."),
         ],
         door: [
             p("Hell Nah... kto zamyka schody na kod?"),
@@ -68,13 +69,13 @@ export const STORY = {
                 p("Chyba sie lekko spóźniłem, reszta RAM'u została tylko w migających komputerach."),
                 p("Tylko trzeba sie prześlizgnąć koło szkiełów."),
             ],
-            firstRam: [p("Jeden leży skibidi, został jeszcze jeden.")],
+            firstRam: [p("I do kieszeni, został jeszcze jeden.")],
             doorsOpen: [p("Dobra, na GTA VI wystarczy, lecym!")],
         },
         jammed: {
             start: [
                 p("Cały czas ktoś pali tokeny..."),
-                p("Terminal w sali po lewej wyłączy im neta, ten w prawej włączy verity phonk na słuchawkach."),
+                p("Terminal w sali po lewej wyłączy im neta, ten w prawej włączy skolima na słuchawkach."),
                 p("A, i każda da mi kawałek kodu do drzwi (kto to projektował...), w salach powinienem być bezpieczny."),
                 n("Zdobyte kawałki kodu widać w prawym górnym rogu."),
             ],
@@ -83,7 +84,7 @@ export const STORY = {
                 p("Najpierw musze odciąć internet temu gemini enjoyer."),
             ],
             firstTerminal: [p("Nie ma grok'a, naucz sie programować a nie... lece teraz do tego po prawej.")],
-            bothTerminals: [p("I tyle, nie ma generowania waifu w szkole, miłego słuchania. Do wyjścia!")],
+            bothTerminals: [p("I tyle, miłego słuchania. Do wyjścia!")],
             doorsOpen: [p("Sezamie otwórz sie! Ej bo zadziałało... dobra wiejemy.")],
         },
         lounge: {
@@ -119,6 +120,37 @@ export const STORY = {
             pi("Stary, Ty se żartujesz?"),
             p("No na GTA starczy, jutro lecimy do TME po ich RAM."),
             n("I tyle ich widziano."),
+        ],
+    },
+};
+
+// Quest card per level (Esc / H in game, shown at the start of every level).
+// `recap` = the story in short, shown instead of the cutscenes when the story is skipped.
+export const QUESTS = {
+    lab: {
+        recap: "Noc. Pilot wysadził cię na dachu Technikum SCI. W pracowni zostały kości RAM, a nauczyciele mają nocną zmianę.",
+        steps: [
+            "Ukradnij 2 kości RAM z migających komputerów (podejdź, E).",
+            "Drzwi otworzą się same, wyjdź przez nie (strzałka pokazuje drogę).",
+            "Nie daj się zobaczyć: unikaj stożków światła nauczycieli, nie hałasuj.",
+        ],
+    },
+    jammed: {
+        recap: "Masz RAM, ale schody zamknięto zamkiem na kod, a ktoś zżera cały internet i w szkole nie ma zasięgu.",
+        steps: [
+            "Terminal w sali po lewej (restart routera): da 2 cyfry kodu.",
+            "Terminal w sali po prawej (strojenie anteny): da 2 kolejne cyfry.",
+            "Wpisz kod przy drzwiach w prawym dolnym rogu i zmostkuj kable.",
+            "Jasna podłoga w salach to strefa bezpieczna: tam nikt cię nie złapie.",
+        ],
+    },
+    lounge: {
+        recap: "Ostatnia przeszkoda: świetlica. Klucz do wyjścia ma woźny, Pan Mieciu, a przy pasku nosi pałkę Lolę.",
+        steps: [
+            "Weź piłeczki ze stołu do ping-ponga (E).",
+            "Rzuć piłeczkę (Q, celujesz myszą): Pan Mieciu pójdzie sprawdzić hałas.",
+            "Podejdź do niego od tyłu i przytrzymaj E, żeby zabrać klucz.",
+            "Potem uciekaj do drzwi na lewej ścianie, zanim czas minie.",
         ],
     },
 };

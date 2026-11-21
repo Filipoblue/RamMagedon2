@@ -23,6 +23,15 @@ export function isDialogOpen() {
     return false;
 }
 
+/**
+ * Another window that pauses the world like a dialog (e.g. the quest notebook): while
+ * `obj` exists isDialogOpen() is true; after it is destroyed input waits closeGrace too.
+ */
+export function holdWorld(k, obj) {
+    boxes.add(obj);
+    obj.onDestroy(() => (closedAt = k.time()));
+}
+
 /** True while a dialog is open or was closed a moment ago (so its last key press is not reused). */
 export const dialogBlocksInput = (k) => isDialogOpen() || k.time() - closedAt < D.closeGrace;
 

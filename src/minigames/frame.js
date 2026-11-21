@@ -13,6 +13,7 @@ import { drawPaper, scribble, INK } from "../ui/paper.js";
 //       width, height,                // content area in px
 //       keys: { a: fn, space: fn },   // key presses (ignored during the input delay / cooldown)
 //       update(dt, ui), draw(ui),     // ui = the object below
+//       canLeave: () => bool,         // optional: false = Esc / click outside do nothing (default: true)
 //       onClose(ok),                  // ok = finished, false = Esc / click outside
 //   })
 //
@@ -36,6 +37,7 @@ export function openMinigame(k, player, spec) {
     let cooldown = MINIGAME.inputDelay;
     let closing = -1; // > 0: finished, closing after this delay
     let closed = false;
+    const canLeave = () => spec.canLeave?.() ?? true;
     const text = (v) => (typeof v === "function" ? v() : v ?? "");
 
     const ui = {
@@ -111,17 +113,18 @@ export function openMinigame(k, player, spec) {
                     drawPaper(k, c.sub(mw / 2, 28), mw, 56, { seed: 23, lines: false, margin: false });
                     k.drawText({ text: msg.text, pos: c, size: FONT.big, anchor: "center", color: k.rgb(...msg.color) });
                 }
-                k.drawText({ text: "Esc - wyjdź, postęp zostaje", pos: box.add(0, h + 22), size: FONT.small, color: k.rgb(...INK.soft) });
+                const footer = canLeave() ? "Esc - wyjdź, postęp zostaje" : "Dokończ, teraz nie da się wyjść";
+                k.drawText({ text: footer, pos: box.add(0, h + 22), size: FONT.small, color: k.rgb(...INK.soft) });
                 k.popTransform();
             },
         },
     ]);
 
     const handlers = [
-        k.onKeyPress("escape", () => close(false)),
+        k.onKeyPress("escape", () => canLeave() && close(false)),
         // click outside the window = leave (progress is kept)
         k.onMousePress("left", () => {
-            if (cooldown <= 0 && !inside(k.mousePos())) close(false);
+            if (cooldown <= 0 && canLeave() && !inside(k.mousePos())) close(false);
         }),
         ...Object.entries(spec.keys ?? {}).map(([key, fn]) => k.onKeyPress(key, () => !ui.busy() && fn(ui))),
     ];

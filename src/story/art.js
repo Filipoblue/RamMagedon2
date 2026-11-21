@@ -72,23 +72,24 @@ const TEACHER = [
     "ooooooooooooooo.",
 ];
 
-// Pan Mieciu, the janitor: cap (c/C), brim (b), moustache (M), overalls (u/U), badge (y)
+// Pan Mieciu, the janitor (matches his in-game sprite): grey hair (h/H), blue shirt (u),
+// dark button strip (d), suspenders (j), cheeks (r)
 const MIECIU = [
-    "...oooooooooo...",
-    "..occcccccccco..",
-    ".occcCyycccccco.",
-    ".occcccccccccco.",
-    "obbbbbbbbbbbbbbo",
+    "....oooooooo....",
+    "...ohhhhhhhho...",
+    "..ohhhhhhhhhho..",
+    ".ohhhhhhhhhhhho.",
+    ".ohHhhhhhhhhhHo.",
+    ".oHsssssssssHHo.",
+    ".oHseesssseesHo.",
     ".osssssssssssso.",
-    ".osseesssseesso.",
-    ".osssssSSssssso.",
-    ".osMMMMMMMMMMso.",
-    ".oSMMMssssMMMSo.",
-    "..oSssmmmmssSo..",
+    ".osrsssSSsssrso.",
+    "..osssmmmmssso..",
     "...oSSSSSSSSo...",
-    "..ouuuooooouuo..",
-    ".ouUuuuuuuuuUuo.",
-    "ouuUuuuyuuuuUuuo",
+    "..ouujuuddujuuo.",
+    ".ouuujuudduujuuo",
+    "ouuuujuudduujuuo",
+    "ouuuujuudduujuuo",
     "oooooooooooooooo",
 ];
 
@@ -148,7 +149,7 @@ export function loadStoryArt(k) {
     });
     portrait("portrait_teacher", TEACHER, { h: [170, 170, 175], q: [60, 60, 70], c: [130, 60, 70], C: [100, 45, 55], m: [150, 80, 80] });
     portrait("portrait_mieciu", MIECIU, {
-        c: [40, 60, 120], C: [25, 40, 85], b: [20, 25, 45], y: [230, 200, 60], M: [90, 70, 55], m: [150, 70, 60], u: [70, 80, 95], U: [50, 58, 70],
+        h: [156, 156, 162], H: [112, 112, 120], r: [237, 160, 134], m: [150, 70, 60], u: [82, 102, 136], d: [46, 58, 82], j: [62, 78, 106],
     });
     loadPixelArt(k, "heli", [HELI], {
         o: OUT, b: [52, 78, 110], B: [36, 54, 78], w: [120, 200, 230], V: [220, 245, 255], y: [230, 200, 60], r: [255, 60, 60], s: [120, 120, 130],

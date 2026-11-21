@@ -3,7 +3,7 @@ import { sfx } from "../systems/audio.js";
 import { openMinigame, drawKeyCap } from "./frame.js";
 import { INK } from "../ui/paper.js";
 
-// Terminal 1: "Restart routera". Three rounds of a random A/S/D sequence; type it
+// Terminal 1: "Restart routera". Three rounds of a random W/A/S/D sequence; type it
 // without a mistake before the time runs out. A wrong key or a timeout restarts the
 // round and makes a loud noise. Finished rounds are kept on the terminal (Esc is safe).
 

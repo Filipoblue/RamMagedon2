@@ -1,7 +1,7 @@
 import { CUTSCENE as C } from "../config.js";
 import { STORY } from "../story/script.js";
 import { showDialog } from "../systems/dialog.js";
-import { playMusic, sfx, startLoop } from "../systems/audio.js";
+import { playMusic, sfx, startLoop, playFile, synthRing } from "../systems/audio.js";
 
 // Story cutscenes: procedural pixel-art scenes + textbox narration.
 //   k.go("cutscene", { id: "intro", next: { scene: "game", params: { levelIndex: 0 } } })
@@ -37,6 +37,7 @@ export function cutsceneScene(k) {
                 guard(new Promise((r) => k.tween(obj[key], to, dur, (v) => (obj[key] = v), ease).onEnd(r))),
             fadeIn: () => S.tween(fade, "a", 0, C.fadeTime),
             fadeOut: () => S.tween(fade, "a", 1, C.fadeTime),
+            onExit: (stop) => stops.push(stop),
             loop: (name) => {
                 const stop = startLoop(name);
                 stops.push(stop);
@@ -229,12 +230,13 @@ async function introScript(S) {
 }
 
 // ======================= cutscene 2: corridor after level 1 =======================
+// The hero walks down the corridor, the pilot calls ("co tak wolno?"), then the locked
+// stairwell door with "BRAK ZASIĘGU" on its keypad (lead-in to level 2).
 
 async function escapeScript(S) {
     const { k } = S;
     playMusic("level");
     const FLOOR = 470;
-    const beam = { on: 0, angle: Math.PI, reach: 0 };
     const keypad = { blink: true };
 
     k.add([
@@ -275,13 +277,6 @@ async function escapeScript(S) {
                 k.drawRect({ pos: k.vec2(1048, FLOOR - 124), width: 12, height: 6, color: k.rgb(255, 50, 50), opacity: led ? 1 : 0.2 });
                 k.drawText({ text: "KLATKA SCHODOWA", pos: k.vec2(1130, FLOOR - 248), size: 32, anchor: "center", color: k.rgb(200, 200, 210) });
                 if (led) k.drawText({ text: "BRAK ZASIĘGU", pos: k.vec2(1054, FLOOR - 165), size: 32, anchor: "center", color: k.rgb(255, 80, 80) });
-                // a teacher's flashlight from the far right end of the corridor
-                if (beam.on > 0.01) {
-                    const o = k.vec2(k.width() + 20, FLOOR - 60);
-                    const a = beam.angle;
-                    const tip = (d) => o.add(Math.cos(a + d) * beam.reach, Math.sin(a + d) * beam.reach);
-                    k.drawPolygon({ pts: [o, tip(-0.12), tip(0.12)], color: k.rgb(255, 230, 150), opacity: 0.22 * beam.on });
-                }
                 // darkness vignette
                 k.drawRect({ pos: k.vec2(0, 0), width: k.width(), height: k.height(), color: k.rgb(0, 0, 10), opacity: 0.35 });
             },
@@ -289,31 +284,49 @@ async function escapeScript(S) {
     ]);
 
     const kid = addKid(k, 145, FLOOR + 6);
-    // the stolen RAM glows above the kid's hand
+    // phone: "ring" = vibrating over the kid's head, "call" = held at the ear
+    const phone = { state: "none" };
     k.add([
         k.z(21),
         {
             draw() {
-                if (!kid.exists() || kid.hidden) return;
+                if (!kid.exists()) return;
+                // the stolen RAM glows above the kid's hand
                 const p = kid.pos.add(kid.flipX ? -26 : 18, -34);
                 k.drawRect({ pos: p, width: 14, height: 6, color: k.rgb(60, 170, 90) });
                 k.drawCircle({ pos: p.add(7, 3), radius: 10, color: k.rgb(120, 255, 150), opacity: 0.15 + 0.1 * Math.sin(k.time() * 5) });
+                if (phone.state === "none") return;
+                const t = k.time();
+                const ring = phone.state === "ring";
+                const at = ring ? kid.pos.add(Math.sin(t * 50) * 3 - 9, -92) : kid.pos.add(kid.flipX ? -18 : 6, -50);
+                k.drawRect({ pos: at, width: 18, height: 30, radius: 3, color: k.rgb(30, 30, 36) });
+                k.drawRect({ pos: at.add(3, 4), width: 12, height: 20, color: k.rgb(...(ring ? [140, 220, 255] : [70, 110, 140])) });
+                if (ring) {
+                    // vibration arcs
+                    for (let i = 1; i <= 2; i++) {
+                        const o = ((t * 3) % 1) * 4 + i * 8;
+                        k.drawLine({ p1: at.add(-o, 6), p2: at.add(-o, 24), width: 2, color: k.rgb(255, 255, 255), opacity: 0.7 / i });
+                        k.drawLine({ p1: at.add(18 + o, 6), p2: at.add(18 + o, 24), width: 2, color: k.rgb(255, 255, 255), opacity: 0.7 / i });
+                    }
+                }
             },
         },
     ]);
 
     sfx("door");
     await S.fadeIn();
-    await S.say(STORY.escape.out);
-    await kid.walkTo(S, 400);
-    // flashlight sweeps from the far end, the kid freezes in the shadow
-    sfx("detect");
-    await Promise.all([S.tween(beam, "on", 1, 0.4), S.tween(beam, "reach", 700, 1.2)]);
-    await S.say(STORY.escape.hide);
-    await S.tween(beam, "angle", Math.PI - 0.18, 1.2);
-    await S.tween(beam, "angle", Math.PI + 0.05, 1.2);
-    await Promise.all([S.tween(beam, "reach", 0, 1), S.tween(beam, "on", 0, 1)]);
-    await S.wait(0.4);
+    // walking down the corridor with the loot...
+    await kid.walkTo(S, 560);
+    // ...the pilot calls: ringtone file (public/audio/ringtone.mp3, cut after C.ringTime s)
+    phone.state = "ring";
+    const stopRing = playFile(C.ringtone, C.ringTime, synthRing, C.ringVolume);
+    S.onExit(stopRing);
+    await S.wait(C.ringTime);
+    stopRing();
+    phone.state = "call";
+    sfx("click");
+    await S.say(STORY.escape.call);
+    phone.state = "none";
     await kid.walkTo(S, 1000);
     sfx("error");
     await S.say(STORY.escape.door);

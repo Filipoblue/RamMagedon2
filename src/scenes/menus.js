@@ -2,15 +2,16 @@ import { TOTAL_RAM } from "../level/rooms.js";
 import { MENU } from "../config.js";
 import { AUTHORS } from "../story/script.js";
 import { playMusic, sfx, isMuted } from "../systems/audio.js";
+import { settings } from "../story/progress.js";
 import { drawPaper, scribble, INK } from "../ui/paper.js";
 
 const PLN_PER_RAM = 525; // humour: GDD "4 200 PLN - starczy na bułkę w sklepiku"
 
 // game over screen: reason (from scenes/game.js caught()) -> [title, line]
 const GAME_OVER = {
-    teacher: ["ZŁAPANY!", "Konfiskata sprzętu i uwaga do dziennika."],
-    mieciu: ["ZŁAPANY!", "Pan Mieciu cię zauważył. Koniec wycieczki."],
-    lola: ["LOLA CIĘ DOPADŁA!", "Pan Mieciu i Lola nie żartują."],
+    teacher: ["ZŁAPANY!", "-20 punktów i rozmowa z rodzicami."],
+    mieciu: ["ZŁAPANY!", "I to tyle, nie będzie przejażdżki windą."],
+    lola: ["Miss LOLA!", "Jak było na spotkaniu?"],
     timeout: ["ZA PÓŹNO!", "Pan Mieciu zablokował wyjście na cztery spusty."],
 };
 const GREEN = [120, 255, 160];
@@ -40,7 +41,7 @@ const CONTROLS = [
     ["F / PPM", "latarka wł. / wył."],
     ["E", "interakcja, kradzież RAM"],
     ["Spacja / E / Enter", "dalej w dialogu"],
-    ["Esc", "wyjście z minigierki, pominięcie scenki"],
+    ["Esc", "zadanie / wyjście z minigierki"],
     ["M", "wycisz dźwięk"],
 ];
 
@@ -50,43 +51,82 @@ export function menuScenes(k) {
         addMenuBackground(k);
         addLogo(k);
 
+        const startGame = (skip) => {
+            settings.skipStory = skip;
+            if (skip) k.go("game", { levelIndex: 0 });
+            else k.go("cutscene", { id: "intro", next: { levelIndex: 0 } });
+        };
         const items = [
-            { label: "Start", action: () => k.go("cutscene", { id: "intro", next: { levelIndex: 0 } }) },
-            { label: "Sterowanie i Autorzy", action: () => (ui.modal = true) },
+            { label: "Start", action: () => openModal("skip") },
+            { label: "Sterowanie i Autorzy", action: () => openModal("controls") },
             { label: "Wyjdź", action: () => k.go("quit") },
         ];
-        const ui = { sel: 0, modal: false, modalOpenedAt: 0 };
+        // modal: null | "controls" | "skip" (the "skip the story?" question, choice 0 / 1)
+        const ui = { sel: 0, modal: null, modalOpenedAt: 0, choice: 0 };
         const btnW = 440, btnH = 52;
         const btnPos = (i) => k.vec2(k.width() / 2 - btnW / 2, 400 + i * 66);
         const hit = (i, m) => {
             const p = btnPos(i);
             return m.x >= p.x && m.x <= p.x + btnW && m.y >= p.y && m.y <= p.y + btnH;
         };
+        const choiceHit = (m) => SKIP_CHOICES.findIndex((_, i) => {
+            const r = skipChoiceRect(k, i);
+            return m.x >= r.x && m.x <= r.x + r.w && m.y >= r.y && m.y <= r.y + r.h;
+        });
         const move = (d) => {
             ui.sel = (ui.sel + d + items.length) % items.length;
             sfx("menuMove");
         };
+        function openModal(name) {
+            ui.modal = name;
+            ui.choice = 0;
+            ui.modalOpenedAt = k.time();
+        }
         const activate = () => {
             sfx("menuSelect");
             items[ui.sel].action();
-            if (ui.modal) ui.modalOpenedAt = k.time();
         };
         const closeModal = () => {
             if (k.time() - ui.modalOpenedAt < 0.1) return;
-            ui.modal = false;
+            ui.modal = null;
+            sfx("menuMove");
+        };
+        const confirm = () => {
+            if (k.time() - ui.modalOpenedAt < 0.1) return;
+            if (ui.modal === "skip") {
+                sfx("menuSelect");
+                startGame(ui.choice === 1);
+            } else closeModal();
+        };
+        const pick = (d) => {
+            if (ui.modal !== "skip") return;
+            ui.choice = (ui.choice + d + 2) % 2;
             sfx("menuMove");
         };
 
-        k.onKeyPress(["w", "up"], () => !ui.modal && move(-1));
-        k.onKeyPress(["s", "down"], () => !ui.modal && move(1));
-        k.onKeyPress(["enter", "space", "e"], () => (ui.modal ? closeModal() : activate()));
+        k.onKeyPress(["w", "up"], () => (ui.modal ? pick(-1) : move(-1)));
+        k.onKeyPress(["s", "down"], () => (ui.modal ? pick(1) : move(1)));
+        k.onKeyPress(["a", "left"], () => pick(-1));
+        k.onKeyPress(["d", "right"], () => pick(1));
+        k.onKeyPress(["enter", "space", "e"], () => (ui.modal ? confirm() : activate()));
         k.onKeyPress("escape", () => ui.modal && closeModal());
         k.onMouseMove(() => {
+            if (ui.modal === "skip") {
+                const i = choiceHit(k.mousePos());
+                if (i >= 0 && i !== ui.choice) pick(i - ui.choice);
+                return;
+            }
             if (ui.modal) return;
             const i = items.findIndex((_, i) => hit(i, k.mousePos()));
             if (i >= 0 && i !== ui.sel) move(i - ui.sel);
         });
         k.onMousePress("left", () => {
+            if (ui.modal === "skip") {
+                const i = choiceHit(k.mousePos());
+                if (i < 0) return closeModal();
+                ui.choice = i;
+                return confirm();
+            }
             if (ui.modal) return closeModal();
             const i = items.findIndex((_, i) => hit(i, k.mousePos()));
             if (i >= 0) {
@@ -114,7 +154,8 @@ export function menuScenes(k) {
                         text: `W/S + Enter lub mysz   ·   M: dźwięk ${isMuted() ? "wył." : "wł."}`,
                         pos: k.vec2(k.width() / 2, k.height() - 28), size: 32, anchor: "center", color: k.rgb(...GREY), opacity: 0.8,
                     });
-                    if (ui.modal) drawControlsModal(k);
+                    if (ui.modal === "controls") drawControlsModal(k);
+                    if (ui.modal === "skip") drawSkipModal(k, ui.choice);
                 },
             },
         ]);
@@ -123,8 +164,8 @@ export function menuScenes(k) {
     k.scene("quit", () => {
         playMusic(null);
         addMenuBackground(k, 0.35);
-        centerText(k, "Misja przerwana", k.height() / 2 - 60, 96, [255, 110, 110]);
-        centerText(k, "Możesz zamknąć kartę.", k.height() / 2 + 20, 48);
+        centerText(k, "A ty gdzie uciekasz?", k.height() / 2 - 60, 96, [255, 110, 110]);
+        centerText(k, "Wracaj do grania!", k.height() / 2 + 20, 48);
         centerText(k, "ENTER / klik - wróć do menu", k.height() / 2 + 110, 32, GREY);
         onContinue(k, () => k.go("menu"));
     });
@@ -222,11 +263,11 @@ function addLogo(k) {
                 const c = k.vec2(k.width() / 2, 190);
                 drawRamStick(k, c.add(-104, -122), 4);
                 if (g.t > 0) {
-                    k.drawText({ text: "RAMmagedon", pos: c.add(g.dx, 0), size: 96, anchor: "center", color: k.rgb(255, 40, 80), opacity: 0.7 });
-                    k.drawText({ text: "RAMmagedon", pos: c.add(-g.dx, 3), size: 96, anchor: "center", color: k.rgb(40, 220, 255), opacity: 0.7 });
+                    k.drawText({ text: "RAMmagedon", pos: c.add(g.dx, 0), size: 96, font: "handpixies", anchor: "center", color: k.rgb(255, 40, 80), opacity: 0.7 });
+                    k.drawText({ text: "RAMmagedon", pos: c.add(-g.dx, 3), size: 96, font: "handpixies", anchor: "center", color: k.rgb(40, 220, 255), opacity: 0.7 });
                 }
-                k.drawText({ text: "RAMmagedon", pos: c.add(4, 4), size: 96, anchor: "center", color: k.rgb(0, 0, 0) });
-                k.drawText({ text: "RAMmagedon", pos: c, size: 96, anchor: "center", color: k.rgb(...GREEN) });
+                k.drawText({ text: "RAMmagedon", pos: c.add(4, 4), size: 96, font: "handpixies", anchor: "center", color: k.rgb(0, 0, 0) });
+                k.drawText({ text: "RAMmagedon", pos: c, size: 96, font: "handpixies", anchor: "center", color: k.rgb(...GREEN) });
                 k.drawText({ text: "Poza zasięgiem", pos: c.add(0, 78), size: 48, anchor: "center", color: k.rgb(...GREY) });
                 k.drawText({
                     text: "Skradanka w ciemnym technikum. Ukradnij RAM, nie daj się oświetlić.",
@@ -265,6 +306,45 @@ function drawControlsModal(k) {
     k.drawText({ text: "Autorzy", pos: p.add(700, 30), size: 48, color: k.rgb(...INK.red) });
     scribble(k, p.x + 700, p.y + 70, k.formatText({ text: "Autorzy", size: 48 }).width, INK.red);
     k.drawText({ text: AUTHORS.join("\n"), pos: p.add(700, 104), size: 32, lineSpacing: 12, width: 370, color: k.rgb(...INK.text) });
-    k.drawText({ text: "Hackaton: Poza zasięgiem", pos: p.add(700, h - 100), size: 32, color: k.rgb(...INK.soft) });
     k.drawText({ text: "Esc / Enter / klik - zamknij", pos: p.add(w / 2, h - 40), size: 32, anchor: "center", color: k.rgb(...INK.soft) });
+}
+
+// ---------- "skip the story?" question (Start) ----------
+
+// [button label, line in the button, playtime under the button]
+const SKIP_CHOICES = [
+    ["Graj z fabułą", "scenki i dialogi", "Czas przejścia: ok. 8 min"],
+    ["Pomiń fabułę", "krótki skrót + zadania", "Czas przejścia: ok. 4 min"],
+];
+const SKIP_W = 760, SKIP_H = 400;
+
+function skipChoiceRect(k, i) {
+    const w = 300, h = 96;
+    const x = k.width() / 2 - w - 20 + i * (w + 40);
+    const y = (k.height() - SKIP_H) / 2 + 150;
+    return { x, y, w, h };
+}
+
+function drawSkipModal(k, choice) {
+    const p = k.vec2((k.width() - SKIP_W) / 2, (k.height() - SKIP_H) / 2);
+    k.drawRect({ pos: k.vec2(0, 0), width: k.width(), height: k.height(), color: k.rgb(0, 0, 0), opacity: 0.6 });
+    drawPaper(k, p, SKIP_W, SKIP_H, { seed: 52, tape: true });
+    k.drawText({ text: "Pominąć fabułę?", pos: p.add(48, 30), size: 48, color: k.rgb(...INK.red) });
+    scribble(k, p.x + 48, p.y + 70, k.formatText({ text: "Pominąć fabułę?", size: 48 }).width, INK.red);
+    k.drawText({ text: "Pierwszy raz? Zagraj z fabułą: w niej są też wskazówki.", pos: p.add(48, 92), size: 32, color: k.rgb(...INK.soft) });
+    SKIP_CHOICES.forEach(([label, sub, time], i) => {
+        const r = skipChoiceRect(k, i);
+        const on = i === choice;
+        const q = k.vec2(r.x, r.y - (on ? 6 : 0));
+        drawPaper(k, q, r.w, r.h, { seed: 60 + i, lines: false, margin: false, color: on ? [250, 246, 232] : [212, 206, 190] });
+        k.drawText({ text: label, pos: q.add(r.w / 2, 28), size: 48, anchor: "center", color: k.rgb(...(on ? INK.red : INK.text)) });
+        k.drawText({ text: sub, pos: q.add(r.w / 2, 66), size: 32, anchor: "center", color: k.rgb(...INK.soft) });
+        k.drawText({ text: time, pos: k.vec2(r.x + r.w / 2, r.y + r.h + 22), size: 32, anchor: "center", color: k.rgb(...(on ? INK.blue : INK.soft)) });
+        if (i === 0) k.drawText({ text: "Zalecany", pos: k.vec2(r.x + r.w / 2, r.y + r.h + 46), size: 32, anchor: "center", color: k.rgb(...INK.green) });
+        if (on) {
+            const tw = k.formatText({ text: label, size: 48 }).width;
+            scribble(k, q.x + (r.w - tw) / 2, q.y + 46, tw, INK.red);
+        }
+    });
+    k.drawText({ text: "A/D lub mysz, Enter - wybierz, Esc - wróć", pos: p.add(SKIP_W / 2, SKIP_H - 36), size: 32, anchor: "center", color: k.rgb(...INK.soft) });
 }

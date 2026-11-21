@@ -1,25 +1,11 @@
 import { HUD, FONT } from "../config.js";
-import { isDialogOpen } from "../systems/dialog.js";
-import { drawPaper, scribble, INK } from "./paper.js";
+import { drawPaper, INK } from "./paper.js";
 
 // In-game HUD (fixed, "ui" layer), drawn on torn notebook pages (ui/paper.js):
 //   top-left   level card + current goal
 //   top-right  RAM slots (or the door code) for this room, flashlight state, help hint
 //   centre     "+1 RAM"-style notes
-// plus the controls note (shown at the start, H toggles it).
-//
-// HandPixies glyphs are about half the font size tall, see FONT in config.js.
-
-const CONTROLS = [
-    ["W A S D", "ruch"],
-    ["Mysz", "celowanie latarką"],
-    ["F / PPM", "latarka wł. / wył."],
-    ["E", "kradzież RAM, interakcja"],
-    ["Q", "rzut piłeczką (świetlica)"],
-    ["Esc", "wyjście z minigierki"],
-    ["M", "dźwięk"],
-    ["H", "pokaż / ukryj sterowanie"],
-];
+// The quest + controls card is ui/notebook.js (Esc / H).
 
 const textW = (k, text, size) => k.formatText({ text, size }).width;
 
@@ -52,7 +38,6 @@ function ramIcon(k, pos, filled) {
 export function addHud(k, o) {
     const [label, title] = o.room.name.includes(":") ? o.room.name.split(/:\s*/) : [`Poziom ${o.levelIndex + 1}`, o.room.name];
     const toasts = [];
-    const help = { visible: false, t: 0, alpha: 0 };
     const S = FONT.small, B = FONT.big;
     let toastSeed = 1;
 
@@ -61,28 +46,18 @@ export function addHud(k, o) {
         k.fixed(),
         k.z(50),
         {
+            /** Current goal text (also shown in the quest notebook). */
+            goal() {
+                return o.goal ? o.goal() : "";
+            },
             /** Short note in the middle of the top of the screen. */
             toast(text, color = INK.green) {
                 toasts.push({ text, color, t: HUD.toastTime, seed: toastSeed++ });
-            },
-            showHelp(seconds = HUD.controlsTime) {
-                help.visible = true;
-                help.t = seconds;
-            },
-            toggleHelp() {
-                if (help.visible) help.visible = false;
-                else hud.showHelp(Infinity);
             },
             update() {
                 const dt = k.dt();
                 for (const t of toasts) t.t -= dt;
                 while (toasts.length && toasts[0].t <= 0) toasts.shift();
-                if (o.player.busy) help.visible = false; // never cover a mini-game
-                if (help.visible && !isDialogOpen()) {
-                    help.t -= dt;
-                    if (help.t <= 0) help.visible = false;
-                }
-                help.alpha += ((help.visible ? 1 : 0) - help.alpha) * Math.min(1, dt * 8);
             },
             draw() {
                 const m = HUD.margin;
@@ -147,11 +122,11 @@ export function addHud(k, o) {
                 k.drawText({ text: `Łup: ${o.run.ram}`, pos: k.vec2(rx + rw - 20, fy - 5), size: S, anchor: "topright", color: k.rgb(...INK.soft) });
 
                 // help hint under the right card
-                const hint = "sterowanie";
-                const hintW = textW(k, hint, S) + textW(k, "H", S) + 60;
+                const hint = "zadanie, sterowanie";
+                const hintW = textW(k, hint, S) + textW(k, "Esc", S) + 60;
                 const hx = k.width() - m - hintW;
                 drawPaper(k, k.vec2(hx, m + 122), hintW, 44, { seed: 9, lines: false, margin: false });
-                const hw = keyChip(k, k.vec2(hx + 12, m + 130), "H");
+                const hw = keyChip(k, k.vec2(hx + 12, m + 130), "Esc");
                 // lowercase text: its middle sits lower than the text box middle, so lift it a bit
                 k.drawText({ text: hint, pos: k.vec2(hx + 12 + hw + 10, m + 131), size: S, color: k.rgb(...INK.soft) });
 
@@ -175,27 +150,8 @@ export function addHud(k, o) {
                     k.drawText({ text, pos: k.vec2(k.width() / 2 + shake, m + 36), size: FONT.huge, anchor: "center", color: k.rgb(...(left < 10 ? INK.red : INK.text)) });
                 }
 
-                if (help.alpha > 0.01) drawControls(k, help.alpha);
             },
         },
     ]);
     return hud;
-}
-
-function drawControls(k, alpha) {
-    const S = FONT.small;
-    const w = 640, rowH = 46, h = 120 + CONTROLS.length * rowH;
-    const p = k.vec2((k.width() - w) / 2, (k.height() - h) / 2 - 10);
-    k.pushTransform();
-    k.pushTranslate(0, (1 - alpha) * 16); // fade + slight slide in
-    drawPaper(k, p, w, h, { seed: 11, tape: true, opacity: alpha });
-    k.drawText({ text: "Sterowanie", pos: p.add(48, 26), size: FONT.big, color: k.rgb(...INK.red), opacity: alpha });
-    scribble(k, p.x + 48, p.y + 64, k.formatText({ text: "Sterowanie", size: FONT.big }).width, INK.red, alpha);
-    k.drawText({ text: "H - zamknij", pos: p.add(w - 32, 32), size: S, anchor: "topright", color: k.rgb(...INK.soft), opacity: alpha });
-    CONTROLS.forEach(([key, what], i) => {
-        const y = 92 + i * rowH;
-        keyChip(k, p.add(48, y), key, alpha);
-        k.drawText({ text: what, pos: p.add(260, y + 8), size: S, color: k.rgb(...INK.text), opacity: alpha });
-    });
-    k.popTransform();
 }

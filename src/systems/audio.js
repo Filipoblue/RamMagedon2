@@ -1,11 +1,12 @@
 import { AUDIO } from "../config.js";
 
-// Chiptune synth on the Web Audio API: music + sound effects, no audio files.
+// Chiptune synth on the Web Audio API: music + sound effects (only the ringtone is a file).
 //
 //   initAudio()          once in main.js (unlocks audio on the first click / key, M = mute)
-//   playMusic("menu")    "menu" | "level" | "alarm" | null (stop); same name again = no restart
+//   playMusic("menu")    "menu" | "level" | "alarm" | "boss" | "chase" | null (stop); same name again = no restart
 //   sfx("success")       one-shot effects, see SFX below
 //   startLoop("heli")    looping effect, returns stop()
+//   playFile(url, sec)   plays an audio file (e.g. the phone ringtone) for at most `sec` seconds
 //
 // Browsers only allow sound after a user gesture. Everything here is safe to call
 // before that: the context starts suspended and music begins on the first click / key.
@@ -153,6 +154,36 @@ const SONGS = {
             if (i % 4 === 0) kick(t, bus);
             if (i === 4 || i === 12) noise(t, 0.12, { vol: 0.16, filter: "bandpass", freq: 1800, q: 0.7, dest: bus });
             if (i % 2 === 1) noise(t, 0.02, { vol: 0.03, freq: 9000, dest: bus });
+        },
+    },
+    // boss (Pan Mieciu, phase 1): D minor, syncopated octave bass, stabby lead, full drums
+    boss: {
+        bpm: 132,
+        chords: [DM, DM, BB, [45, [57, 61, 64]]],
+        step(s, t, sd, [root, tones], bus) {
+            const i = s % 16;
+            const bar = Math.floor(s / 16) % 4;
+            if ([0, 3, 6, 8, 11, 14].includes(i)) tone(midi(root + (i % 2 ? 12 : 0)), t, sd * 1.4, { type: "sawtooth", vol: 0.11, dest: bus });
+            // lead riff: a little different in every bar
+            const riff = [0, 2, 1, 2, 0, 1, 2, 1][(i + bar * 3) % 8];
+            if (i % 2 === 0 || i === 7) tone(midi(tones[riff] + 12), t, sd * 0.9, { type: "square", vol: 0.045, dest: bus });
+            if (i === 0) tone(midi(tones[0] + 24), t, sd * 4, { type: "triangle", vol: 0.05, release: 0.2, dest: bus });
+            if (i % 4 === 0 || i === 10) kick(t, bus);
+            if (i === 4 || i === 12) noise(t, 0.12, { vol: 0.14, filter: "bandpass", freq: 1800, q: 0.7, dest: bus });
+            noise(t, 0.02, { vol: i % 2 ? 0.02 : 0.035, freq: 9000, dest: bus });
+        },
+    },
+    // chase (phase 2, Lola is out): faster, rising semitone, 16th bass
+    chase: {
+        bpm: 168,
+        chords: [DM, [39, [58, 63, 66]], DM, [45, [57, 61, 64]]],
+        step(s, t, sd, [root, tones], bus) {
+            const i = s % 16;
+            tone(midi(root + (i % 4 === 2 ? 12 : 0)), t, sd * 0.9, { type: "sawtooth", vol: 0.1, dest: bus });
+            if (i % 2 === 0) tone(midi(tones[(i / 2) % 3] + 12 + (i >= 8 ? 12 : 0)), t, sd * 0.8, { type: "square", vol: 0.045, dest: bus });
+            if (i % 4 === 0) kick(t, bus);
+            if (i === 4 || i === 12 || i === 14) noise(t, 0.1, { vol: 0.15, filter: "bandpass", freq: 2000, q: 0.7, dest: bus });
+            noise(t, 0.015, { vol: 0.03, freq: 9500, dest: bus });
         },
     },
 };
@@ -327,4 +358,49 @@ export function startLoop(name) {
             out.disconnect();
         }, fade * 1000 + 200);
     };
+}
+
+/**
+ * Plays an audio file for at most `maxSec` seconds (fades out at the end).
+ * `volume` 0..1 scales the sound effects volume. Returns stop().
+ * If the file is missing, `fallback(maxSec, volume)` runs instead (e.g. a synth ring).
+ */
+export function playFile(url, maxSec, fallback, volume = 1) {
+    const el = new Audio(url);
+    el.volume = muted ? 0 : Math.min(1, AUDIO.master * AUDIO.sfx * volume);
+    let fade = null;
+    let stopFallback = null;
+    const stop = () => {
+        clearTimeout(cut);
+        clearInterval(fade);
+        stopFallback?.();
+        el.pause();
+    };
+    const cut = setTimeout(() => {
+        // short fade out instead of a hard cut
+        fade = setInterval(() => {
+            el.volume = Math.max(0, el.volume - 0.08);
+            if (el.volume <= 0) stop();
+        }, 30);
+    }, Math.max(0, maxSec - 0.4) * 1000);
+    el.play().catch(() => {
+        if (fallback) stopFallback = fallback(maxSec, volume);
+    });
+    el.addEventListener("error", () => {
+        if (fallback && !stopFallback) stopFallback = fallback(maxSec, volume);
+    });
+    return stop;
+}
+
+/** Synth phone ring (used when the ringtone file is missing): brr-brr every 1.2 s. */
+export function synthRing(sec, volume = 1) {
+    if (!ensure()) return () => {};
+    const t0 = ctx.currentTime + 0.02;
+    for (let r = 0; r * 1.2 < sec - 0.3; r++) {
+        for (let i = 0; i < 8; i++) {
+            const t = t0 + r * 1.2 + i * 0.05;
+            tone(i % 2 ? 1320 : 1760, t, 0.045, { type: "square", vol: 0.05 * volume });
+        }
+    }
+    return () => {};
 }

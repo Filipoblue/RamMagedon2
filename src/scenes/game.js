@@ -7,11 +7,13 @@ import { addLighting } from "../systems/lighting.js";
 import { startExtraction } from "../systems/extraction.js";
 import { addFx, screenShake, uiShakeOffset, shakeOffset, setContinuousShake } from "../systems/fx.js";
 import { MINIGAME_CAM_SHIFT, INTERACT_DIST } from "../config.js";
-import { STORY } from "../story/script.js";
+import { STORY, QUESTS } from "../story/script.js";
 import { showDialog, dialogBlocksInput } from "../systems/dialog.js";
 import { playMusic, sfx } from "../systems/audio.js";
-import { firstTime } from "../story/progress.js";
+import { firstTime, settings, checkpoints } from "../story/progress.js";
 import { addHud } from "../ui/hud.js";
+import { openNotebook } from "../ui/notebook.js";
+import { addGuide } from "../ui/guide.js";
 import { INK } from "../ui/paper.js";
 import { startQte } from "../minigames/qte.js";
 import { startAntenna } from "../minigames/antenna.js";
@@ -44,6 +46,8 @@ export function gameScene(k) {
 
         run ??= { ram: 0, startTime: k.time() };
         const retryRun = { ...run }; // snapshot for "try again" on this level
+        // checkpoint: RAM already stolen here before a game over stays stolen (door stays open)
+        const cp = (checkpoints[room.id] ??= { pcs: [] });
         const state = {
             roomRam: 0,
             over: false,
@@ -57,9 +61,9 @@ export function gameScene(k) {
         // dev: inspect the level from the browser console (see CONVENTIONS, "Debug")
         if (import.meta.env.DEV) Object.assign(window, { __level: level, __state: state });
         const lines = STORY.levels[room.id] ?? {};
-        // story lines are shown only the first time (not again after a retry)
-        const story = (key) => (firstTime(`${room.id ?? levelIndex}:${key}`) ? lines[key] : null);
-        playMusic("level");
+        // story lines are shown only the first time (not again after a retry), never when skipped
+        const story = (key) => (!settings.skipStory && firstTime(`${room.id ?? levelIndex}:${key}`) ? lines[key] : null);
+        playMusic(room.boss ? "boss" : "level");
 
         /** @param {string} reason "teacher" | "mieciu" | "lola" | "timeout" (text in scenes/menus.js) */
         const caught = (reason = "teacher") => {
@@ -70,11 +74,12 @@ export function gameScene(k) {
         const nextLevel = () => {
             if (state.over) return;
             state.over = true;
+            delete checkpoints[room.id];
             const last = levelIndex + 1 >= LEVELS.length;
             const next = last
                 ? { scene: "win", params: { ram: run.ram, time: k.time() - run.startTime } }
                 : { scene: "game", params: { levelIndex: levelIndex + 1, run } };
-            if (room.cutsceneAfter) k.go("cutscene", { id: room.cutsceneAfter, next });
+            if (room.cutsceneAfter && !settings.skipStory) k.go("cutscene", { id: room.cutsceneAfter, next });
             else k.go(next.scene, next.params);
         };
 
@@ -98,6 +103,7 @@ export function gameScene(k) {
                 player.busy = false;
                 if (!ok) return sfx("menuMove"); // left the mini-game, progress kept
                 pc.hasRam = false;
+                cp.pcs.push(level.computers.indexOf(pc));
                 run.ram++;
                 state.roomRam++;
                 hud.toast("+1 RAM");
@@ -109,6 +115,14 @@ export function gameScene(k) {
                 } else if (state.roomRam === 1) showDialog(k, story("firstRam"));
             });
         };
+
+        // restore the checkpoint (after a game over on this level)
+        for (const i of cp.pcs) {
+            level.computers[i].hasRam = false;
+            run.ram++;
+            state.roomRam++;
+        }
+        if (room.ramToOpen && state.roomRam >= room.ramToOpen) level.openDoors();
 
         const useTerminal = (t) => {
             const done = (ok) => {
@@ -239,7 +253,10 @@ export function gameScene(k) {
                         screenShake(k, ALARM_SHAKE, 1); // shake + red flash
                         sfx("alarm");
                     }
-                    if (!state.over) playMusic(alarmed.length ? "alarm" : "level");
+                    if (!state.over) {
+                        if (bossLevel) playMusic(bossLevel.timer() != null ? "chase" : "boss");
+                        else playMusic(alarmed.length ? "alarm" : "level");
+                    }
                     // "!" sting when a teacher starts spotting you (once per sighting)
                     for (const t of k.get("teacher")) {
                         if (t.detection > 0.3 && !t.stung) {
@@ -300,11 +317,39 @@ export function gameScene(k) {
                 return "Otwórz zamek przy drzwiach";
             },
         });
-        k.onKeyPress("h", () => hud.toggleHelp());
-        // hero's comment, then the controls card (both only the first time)
+        // ---- quest notebook (Esc / H): quest, current goal, controls; pauses the world ----
+        let notebook = null;
+        const showNotebook = () => {
+            notebook = openNotebook(k, { quest: QUESTS[room.id], goal: hud.goal, recap: settings.skipStory });
+            return new Promise((r) => notebook.onDestroy(r));
+        };
+        k.onKeyPress(["escape", "h"], () => {
+            if (player.busy || notebook?.exists() || dialogBlocksInput(k) || state.over) return;
+            showNotebook();
+        });
+
+        // ---- guide arrows: where to go next ----
+        const tileCenter = (cx, cy) => k.vec2((cx + 0.5) * TILE, (cy + 0.5) * TILE);
+        const doorCenter = () => {
+            const ds = level.doors;
+            return tileCenter(ds.reduce((a, d) => a + d.cx, 0) / ds.length, ds.reduce((a, d) => a + d.cy, 0) / ds.length);
+        };
+        addGuide(k, player, () => {
+            const open = level.doors.some((d) => d.isOpen);
+            if (open) return [doorCenter()];
+            if (bossLevel) return []; // the door opens with Pan Mieciu's key
+            if (room.ramToOpen) return level.computers.filter((pc) => pc.hasRam).map((pc) => tileCenter(pc.cx, pc.cy));
+            const todo = level.terminals.filter((t) => !t.done && t.kind !== "keypad");
+            if (todo.length) return todo.map((t) => tileCenter(t.cx, t.cy));
+            return level.terminals.filter((t) => t.kind === "keypad").map((t) => tileCenter(t.cx, t.cy));
+        });
+
+        // story intro (or nothing when skipped), then the quest card (first time on each level)
         k.wait(0.5, async () => {
+            // the player may have opened the notebook already (Esc): talk after it is closed
+            if (notebook?.exists()) await new Promise((r) => notebook.onDestroy(r));
             await showDialog(k, story("start"));
-            if (firstTime("controls")) hud.showHelp();
+            if (firstTime(`${room.id}:quest`)) await showNotebook();
         });
     });
 }

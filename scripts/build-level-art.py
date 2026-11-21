@@ -37,7 +37,7 @@ WALLISH = set("#K")
 STYLES = {
     "jammed": {"floor": "carpet", "desk_pcs": True},
     # closed_doors: (x, y0, y1) decorative closed doors in a vertical wall
-    "lounge": {"floor": "wood", "desk_pcs": False, "closed_doors": [(4, 17, 19)]},
+    "lounge": {"floor": "wood", "desk_pcs": False, "closed_doors": [(28, 1, 2)]},
 }
 
 
