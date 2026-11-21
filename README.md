@@ -1,6 +1,6 @@
 # RAMmagedon
 
-#Opis
+# Opis
 
 Jest noc, a ty zakradasz się do Technikum SCI, żeby ukraść kości RAM. 
 Przemykasz ciemnymi korytarzami z latarką i unikasz stożków światła nauczycieli na nocnej zmianie, bo każdy hałas może cię zdradzić.
