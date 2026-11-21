@@ -2,13 +2,17 @@ import { TILE, COLORS } from "../config.js";
 import { buildSegments } from "../systems/raycast.js";
 
 // Map legend: see src/level/rooms.js.
-// Player's light/view is blocked only by walls, cabinets and closed doors.
-const OPAQUE = new Set(["#", "S", "D"]);
-// What blocks a TEACHER's sight: the above + every desk (with or without PC).
+// Player's light/view is blocked only by walls, cabinets, closed doors and keypads.
+const OPAQUE = new Set(["#", "S", "D", "K", "O"]);
+// What blocks a TEACHER's sight: the above + every desk (with or without PC / terminal).
 // (The player's flashlight goes over desks, teachers cannot see the player behind them.)
-const SIGHT_BLOCK = new Set(["#", "S", "D", "=", "C"]);
+const SIGHT_BLOCK = new Set(["#", "S", "D", "K", "O", "=", "C", "1", "2", "T", "B", "Y", "H"]);
 // Glass ("G") blocks movement, but not light/sight.
-const SOLID = new Set(["#", "S", "D", "=", "C", "G"]);
+const SOLID = new Set(["#", "S", "D", "K", "O", "=", "C", "G", "1", "2", "T", "B", "Y", "H"]);
+// Safe floor: teachers never walk there and cannot catch you there.
+const SAFE = ",";
+// Interactive terminals (level 2): which mini-game each one starts.
+const TERMINALS = { 1: "qte", 2: "antenna", K: "keypad" };
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 /**
@@ -38,6 +42,17 @@ export function buildLevel(k, room) {
     const waypoints = {}; // letter -> world pos
     const doors = [];
     const computers = [];
+    const terminals = []; // { kind: "qte" | "antenna" | "keypad", cx, cy, done, progress }
+
+    // Static blocks are merged into as few rectangles as possible: KAPLAY collision cost
+    // grows with the square of area() objects, one object per tile drops to ~2 FPS.
+    for (const r of mergeRects(grid, cols, rows, "#")) spawnBlock(k, r, COLORS.wall, ["wall", "opaque"]);
+    for (const r of mergeRects(grid, cols, rows, "S")) spawnBlock(k, r, COLORS.cabinet, ["cabinet", "opaque"], 4);
+    for (const r of mergeRects(grid, cols, rows, "=")) spawnBlock(k, r, COLORS.desk, ["desk"], 3);
+    for (const r of mergeRects(grid, cols, rows, "G")) spawnGlass(k, r);
+    for (const ch of ["O", "T", "B", "Y", "H"]) {
+        for (const r of mergeRects(grid, cols, rows, ch)) spawnBlock(k, r, ch === "O" ? COLORS.wall : COLORS.desk, ch === "O" ? ["wall", "opaque"] : ["desk"], 3);
+    }
 
     for (let y = 0; y < rows; y++) {
         for (let x = 0; x < cols; x++) {
@@ -45,13 +60,19 @@ export function buildLevel(k, room) {
             const p = k.vec2(x * TILE, y * TILE);
             const center = p.add(TILE / 2, TILE / 2);
 
-            if (ch === "#") spawnBlock(k, p, COLORS.wall, ["wall", "opaque"]);
-            else if (ch === "S") spawnBlock(k, p, COLORS.cabinet, ["cabinet", "opaque"], 4);
-            else if (ch === "=") spawnBlock(k, p, COLORS.desk, ["desk"], 3);
-            else if (ch === "G") spawnGlass(k, p);
-            else if (ch === "C") computers.push(spawnComputer(k, p, x, y));
+            if (ch === "C") computers.push(spawnComputer(k, p, x, y));
+            else if (TERMINALS[ch]) {
+                const block = ch === "K" ? spawnBlock(k, p, COLORS.wall, ["wall", "opaque"]) : spawnBlock(k, p, COLORS.desk, ["desk"], 3);
+                terminals.push({ kind: TERMINALS[ch], cx: x, cy: y, block, done: false, progress: null });
+            } else if (ch === SAFE && !room.background) {
+                k.add([k.pos(p), k.rect(TILE, TILE), k.color(...COLORS.safe), k.opacity(0.35), k.z(-15), k.layer("world")]);
+            }
             else if (ch === "D") doors.push(spawnDoor(k, p, x, y));
-            else if (ch === "P") playerStart = center;
+            else if (ch === "P") {
+                playerStart = center;
+                // a start inside a safe zone is safe floor too
+                if (NEIGHBOURS.slice(0, 4).some(([dx, dy]) => at(x + dx, y + dy) === SAFE)) grid[y][x] = SAFE;
+            }
             else if (/[a-z]/.test(ch)) waypoints[ch] = center;
         }
     }
@@ -59,11 +80,14 @@ export function buildLevel(k, room) {
     // Teacher routes: "abcd" = walk a -> b -> c -> d -> a ...
     const teachers = (room.teachers ?? []).map((t) => {
         const cfg = typeof t === "string" ? { route: t } : t;
-        const pts = [...cfg.route].map((ch) => {
-            if (!waypoints[ch]) throw new Error(`${room.name}: route "${cfg.route}" uses '${ch}', which is not on the map`);
-            return waypoints[ch];
-        });
-        return { ...cfg, waypoints: pts };
+        const toPts = (route) =>
+            [...route].map((ch) => {
+                if (!waypoints[ch]) throw new Error(`${room.name}: route "${route}" uses '${ch}', which is not on the map`);
+                return waypoints[ch];
+            });
+        // { routes: [...] } = several routes, the teacher switches between them
+        const routes = (cfg.routes ?? [cfg.route]).map(toPts);
+        return { ...cfg, waypoints: routes[0], routes };
     });
 
     if (room.background) {
@@ -80,43 +104,56 @@ export function buildLevel(k, room) {
         playerStart,
         teachers, // [{ route, waypoints: Vec2[], speed? }]
         computers,
+        terminals,
         doors,
         segments: [], // blocks the player's light/view: walls, cabinets, closed doors
         sightSegments: [], // blocks teachers' sight: the above + all desks and PCs
         isOpaque: (x, y) => OPAQUE.has(at(x, y)),
         isSolid: (x, y) => SOLID.has(at(x, y)),
+        isSafe: (x, y) => at(x, y) === SAFE,
+        /** Centres (world px) of every tile with this map char, e.g. "T" = ping-pong table. */
+        tilesWith(ch) {
+            const out = [];
+            room.map.forEach((row, y) => [...row].forEach((c, x) => c === ch && out.push(k.vec2((x + 0.5) * TILE, (y + 0.5) * TILE))));
+            return out;
+        },
+        /** Is a world point on a safe tile (teachers cannot catch you there)? */
+        isSafeAt: (p) => at(Math.floor(p.x / TILE), Math.floor(p.y / TILE)) === SAFE,
         /**
          * Grid path (8 directions, no corner cutting) between two world points.
-         * If `to` is inside a solid tile (e.g. a PC), goes to the nearest free tile next to it.
-         * @returns {Vec2[]} world positions of tile centres, [] if unreachable
+         * If `to` cannot be reached (inside a desk, or inside a safe zone when
+         * `avoidSafe`), the path ends on the reachable tile closest to it.
+         * @param {boolean} avoidSafe true for teachers: never step on safe tiles (",")
+         * @returns {Vec2[]} world positions of tile centres, [] if already there / stuck
          */
-        findPath(from, to) {
+        findPath(from, to, avoidSafe = false) {
             const toCell = (p) => [Math.floor(p.x / TILE), Math.floor(p.y / TILE)];
             const [sx, sy] = toCell(from);
-            let [gx, gy] = toCell(to);
-            if (level.isSolid(gx, gy)) {
-                const free = NEIGHBOURS.map(([dx, dy]) => [gx + dx, gy + dy]).filter(([x, y]) => !level.isSolid(x, y));
-                if (!free.length) return [];
-                free.sort((a, b) => Math.hypot(a[0] - sx, a[1] - sy) - Math.hypot(b[0] - sx, b[1] - sy));
-                [gx, gy] = free[0];
-            }
+            const [gx, gy] = toCell(to);
+            const blocked = (x, y) => level.isSolid(x, y) || (avoidSafe && level.isSafe(x, y));
             const key = (x, y) => y * cols + x;
             const prev = new Map([[key(sx, sy), -1]]);
             const queue = [[sx, sy]];
-            while (queue.length) {
-                const [x, y] = queue.shift();
-                if (x === gx && y === gy) break;
+            let best = key(sx, sy);
+            let bestD = Math.hypot(gx - sx, gy - sy);
+            for (let qi = 0; qi < queue.length; qi++) {
+                const [x, y] = queue[qi];
+                const d = Math.hypot(gx - x, gy - y);
+                if (d < bestD) {
+                    bestD = d;
+                    best = key(x, y);
+                }
+                if (d === 0) break;
                 for (const [dx, dy] of NEIGHBOURS) {
                     const nx = x + dx, ny = y + dy;
-                    if (level.isSolid(nx, ny) || prev.has(key(nx, ny))) continue;
-                    if (dx && dy && (level.isSolid(x + dx, y) || level.isSolid(x, y + dy))) continue;
+                    if (blocked(nx, ny) || prev.has(key(nx, ny))) continue;
+                    if (dx && dy && (blocked(x + dx, y) || blocked(x, y + dy))) continue;
                     prev.set(key(nx, ny), key(x, y));
                     queue.push([nx, ny]);
                 }
             }
-            if (!prev.has(key(gx, gy))) return [];
             const path = [];
-            for (let c = key(gx, gy); c !== key(sx, sy); c = prev.get(c)) {
+            for (let c = best; c !== key(sx, sy); c = prev.get(c)) {
                 path.push(k.vec2((c % cols) * TILE + TILE / 2, Math.floor(c / cols) * TILE + TILE / 2));
             }
             return path.reverse();
@@ -139,10 +176,37 @@ export function buildLevel(k, room) {
     return level;
 }
 
-function spawnBlock(k, p, color, tags, inset = 0) {
+/**
+ * Greedy meshing: covers every `ch` tile with as few rectangles as possible.
+ * @returns {{x:number, y:number, w:number, h:number}[]} in tiles
+ */
+function mergeRects(grid, cols, rows, ch) {
+    const used = grid.map((r) => r.map(() => false));
+    const free = (x, y) => grid[y][x] === ch && !used[y][x];
+    const out = [];
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            if (!free(x, y)) continue;
+            let w = 1;
+            while (x + w < cols && free(x + w, y)) w++;
+            let h = 1;
+            grow: while (y + h < rows) {
+                for (let i = 0; i < w; i++) if (!free(x + i, y + h)) break grow;
+                h++;
+            }
+            for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) used[y + j][x + i] = true;
+            out.push({ x, y, w, h });
+        }
+    }
+    return out;
+}
+
+/** @param r rectangle in tiles ({x, y, w, h}) or a single tile position in px (Vec2) */
+function spawnBlock(k, r, color, tags, inset = 0) {
+    const t = r.w ? r : { x: r.x / TILE, y: r.y / TILE, w: 1, h: 1 };
     return k.add([
-        k.pos(p.x + inset, p.y + inset),
-        k.rect(TILE - inset * 2, TILE - inset * 2),
+        k.pos(t.x * TILE + inset, t.y * TILE + inset),
+        k.rect(t.w * TILE - inset * 2, t.h * TILE - inset * 2),
         k.color(...color),
         k.opacity(1),
         k.area(),

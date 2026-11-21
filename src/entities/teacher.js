@@ -1,48 +1,70 @@
-import { TEACHER, COLORS } from "../config.js";
+import { TEACHER, BOSS, COLORS } from "../config.js";
 import { visibilityFan, hasLineOfSight, inCone } from "../systems/raycast.js";
 import { spawnRing } from "../systems/sound.js";
 import { PING_INTERVAL, PING_RADIUS, PING_COLOR, PING_COLOR_ALARMED } from "../config.js";
+import { isDialogOpen } from "../systems/dialog.js";
+import { facingName } from "./player.js";
+
+// sprite sheet rows (public/sprites/teacher.png, mieciu.png): idle 0-3, walk 4-7
+const ROW = { down: 0, left: 1, right: 2, up: 3 };
 
 const DEG = Math.PI / 180;
 
 // AI states from the GDD.
 export const AI = {
-    PATROL: "PATROL", // walk waypoints
+    PATROL: "PATROL", // walk waypoints (a boss switches between several routes)
     SUSPICIOUS: "SUSPICIOUS", // heard a noise: walk there, look around, go back
-    CHASE: "CHASE", // TODO(P3): run at the player, touch = game over
+    CHASE: "CHASE", // boss only: runs after the player, touch = caught (Lola)
 };
 
 /**
- * @param {{waypoints: Vec2[], speed?: number}} cfg route from the level data
- * @param {object} ctx { level, player, onCaught }
+ * @param {{waypoints: Vec2[], routes?: Vec2[][], speed?: number, boss?: boolean}} cfg from the level data
+ * @param {object} ctx { level, player, lighting, onCaught(reason) }
  */
 export function spawnTeacher(k, cfg, ctx) {
     const s = TEACHER.size;
-    const waypoints = cfg.waypoints;
-    const speed = cfg.speed ?? TEACHER.speed;
-    const { level } = ctx;
+    const boss = Boolean(cfg.boss);
+    // per-teacher numbers: Pan Mieciu sees further and wider
+    const stats = {
+        speed: cfg.speed ?? (boss ? BOSS.speed : TEACHER.speed),
+        fov: (boss ? BOSS.visionFov : TEACHER.visionFov) * DEG,
+        range: boss ? BOSS.visionRange : TEACHER.visionRange,
+        sprite: boss ? "mieciu" : "teacher",
+        scale: boss ? BOSS.spriteScale : TEACHER.spriteScale,
+        offsetY: boss ? BOSS.spriteOffsetY : TEACHER.spriteOffsetY,
+    };
+    const routes = cfg.routes ?? [cfg.waypoints];
+    const { level, player } = ctx;
     const t = k.add([
-        k.pos(waypoints[0]),
-        k.rect(s, s),
-        k.anchor("center"),
-        k.color(...COLORS.teacher),
-        k.outline(2, k.rgb(60, 10, 10)),
-        k.area(),
+        k.pos(routes[0][0]),
+        // collision square centred on pos (the sprite is drawn in onDraw)
+        k.area({ shape: new k.Rect(k.vec2(-s / 2, -s / 2), s, s) }),
         k.layer("world"),
         "teacher",
         {
+            isBoss: boss,
+            hasKey: boss, // Pan Mieciu carries the exit key on his belt
             state: AI.PATROL,
             facing: 0,
-            wpIndex: 1 % waypoints.length,
+            waypoints: routes[0],
+            routes,
+            wpIndex: 1 % routes[0].length,
             wait: 0,
             detection: 0, // 0..1, reaching 1 = caught
             cone: [], // cached vision polygon for drawing
-            path: [], // current grid path (SUSPICIOUS / returning)
+            path: [], // current grid path (SUSPICIOUS / returning / CHASE)
             investigate: 0, // seconds left looking around at the noise
             lookBase: 0,
             noisePos: null,
-            alarmed: false, // heard a LOUD noise (failed mini-game) -> red glow + shake
+            alarmed: false, // heard a LOUD noise (failed mini-game) or chasing -> red glow + shake
             pingTimer: k.rand(0, PING_INTERVAL), // so teachers do not ping in sync
+            moving: false,
+            animTime: 0,
+            // chase
+            lastSeen: null,
+            repath: 0,
+            search: 0,
+            stun: 0, // chase head start (BOSS.chaseDelay)
             /** Called by emitSound() when this teacher is in range. */
             hearNoise(pos, loudness = 1) {
                 if (t.state === AI.CHASE) return;
@@ -50,23 +72,45 @@ export function spawnTeacher(k, cfg, ctx) {
                 t.state = AI.SUSPICIOUS;
                 t.noisePos = pos;
                 t.investigate = 0;
-                t.path = level.findPath(t.pos, pos);
+                t.path = level.findPath(t.pos, pos, true); // stops at the edge of a safe zone
+                if (!t.path.length) {
+                    // already as close as allowed: look around towards the noise right here
+                    t.investigate = TEACHER.investigateTime;
+                    t.lookBase = Math.atan2(pos.y - t.pos.y, pos.x - t.pos.x);
+                }
+            },
+            /** Boss: stop everything and run after the player. */
+            startChase() {
+                t.state = AI.CHASE;
+                t.alarmed = true;
+                t.detection = 0;
+                t.lastSeen = player.pos.clone();
+                t.repath = 0;
+                t.path = [];
+                t.stun = BOSS.chaseDelay;
             },
         },
     ]);
 
     t.onUpdate(() => {
+        if (isDialogOpen()) return; // the world waits while someone talks
         const dt = k.dt();
+        const before = t.pos.clone();
         switch (t.state) {
             case AI.PATROL:
-                if (t.path.length) followPath(t, dt, speed); // walking back to the route
-                else patrol(t, waypoints, dt, speed);
+                if (t.path.length) followPath(t, dt, stats.speed); // walking back to / between routes
+                else patrol(t, dt, stats.speed, level);
                 break;
             case AI.SUSPICIOUS:
-                suspicious(t, waypoints, dt, level, speed);
+                suspicious(t, dt, level, stats.speed);
                 break;
-            // TODO(P3): case AI.CHASE
+            case AI.CHASE:
+                chase(t, dt, level, player);
+                break;
         }
+
+        t.moving = t.pos.dist(before) > 0.01;
+        t.animTime = t.moving ? t.animTime + dt : 0;
 
         t.pingTimer -= dt;
         if (t.pingTimer <= 0) {
@@ -74,16 +118,18 @@ export function spawnTeacher(k, cfg, ctx) {
             spawnRing(k, t.pos, PING_RADIUS, t.alarmed ? PING_COLOR_ALARMED : PING_COLOR, 1.1);
         }
 
-        const { player } = ctx;
         // Invisible unless inside the player's light (the map is faintly visible in the
         // dark, teachers are not: only their ping / noise rings give them away).
         t.hidden = ctx.lighting ? !ctx.lighting.isLit(t.pos.x, t.pos.y) : false;
-        const fov = TEACHER.visionFov * DEG;
-        const range = visionRange(player);
-        t.cone = visibilityFan(t.pos.x, t.pos.y, t.facing, fov, range, TEACHER.visionRays, level.sightSegments);
+        const range = visionRange(player, stats.range);
+        t.cone = visibilityFan(t.pos.x, t.pos.y, t.facing, stats.fov, range, TEACHER.visionRays, level.sightSegments);
+        if (t.state === AI.CHASE) return; // chasing: only touching counts (Lola)
 
+        // on safe floor (",") nobody can catch you: you are only at risk in the open
+        const safe = level.isSafeAt(player.pos);
         const sees =
-            inCone(t.pos.x, t.pos.y, t.facing, fov, range, player.pos.x, player.pos.y) &&
+            !safe &&
+            inCone(t.pos.x, t.pos.y, t.facing, stats.fov, range, player.pos.x, player.pos.y) &&
             hasLineOfSight(t.pos.x, t.pos.y, player.pos.x, player.pos.y, level.sightSegments);
 
         // a suspicious teacher spots you faster
@@ -92,13 +138,14 @@ export function spawnTeacher(k, cfg, ctx) {
         else t.detection -= dt * TEACHER.detectDecay;
         t.detection = k.clamp(t.detection, 0, 1);
 
-        // TODO(P3): instead of instant game over -> CHASE, and game over on touch.
-        if (t.detection >= 1) ctx.onCaught();
+        if (t.detection >= 1) ctx.onCaught(boss ? "mieciu" : "teacher");
     });
 
-    // touching = caught, but never through a wall / PC (LOS check as a safety net)
-    t.onCollide("player", (p) => {
-        if (hasLineOfSight(t.pos.x, t.pos.y, p.pos.x, p.pos.y, level.sightSegments)) ctx.onCaught();
+    // touching = caught, but never through a wall / PC (LOS check as a safety net).
+    // Checked every frame of contact, so standing in him when his head start ends counts too.
+    t.onCollideUpdate("player", (p) => {
+        if (isDialogOpen() || level.isSafeAt(p.pos) || t.stun > 0) return;
+        if (hasLineOfSight(t.pos.x, t.pos.y, p.pos.x, p.pos.y, level.sightSegments)) ctx.onCaught(boss ? "lola" : "teacher");
     });
 
     t.onDraw(() => {
@@ -109,35 +156,62 @@ export function spawnTeacher(k, cfg, ctx) {
                 opacity: 0.18 + t.detection * 0.3,
             });
         }
-        const a = t.facing;
-        const tip = k.vec2(Math.cos(a), Math.sin(a)).scale(s * 0.85);
-        const l = k.vec2(Math.cos(a + 2.4), Math.sin(a + 2.4)).scale(s * 0.35);
-        const r = k.vec2(Math.cos(a - 2.4), Math.sin(a - 2.4)).scale(s * 0.35);
-        k.drawTriangle({ p1: tip, p2: l, p3: r, color: k.rgb(255, 230, 230) });
+        const face = facingName(t.facing);
+        const row = ROW[face] + (t.moving ? 4 : 0);
+        const col = Math.floor((t.moving ? t.animTime : k.time()) * TEACHER.animFps) % 4;
+        const drawBody = () =>
+            k.drawSprite({ sprite: stats.sprite, frame: row * 4 + col, pos: k.vec2(0, stats.offsetY), anchor: "center", scale: stats.scale });
+        if (!boss) return drawBody();
+        // Pan Mieciu: Lola (baton) in his right hand, the key on his belt
+        const side = face === "left" ? -1 : 1;
+        const hand = k.vec2(side * 12, stats.offsetY + 10);
+        const swing = t.state === AI.CHASE ? Math.sin(k.time() * BOSS.lolaSwing) * 1.1 : 0;
+        const a = (t.state === AI.CHASE ? t.facing : Math.PI / 2 - side * 0.25) + swing;
+        const tip = hand.add(Math.cos(a) * 22, Math.sin(a) * 22);
+        const lola = () => {
+            k.drawLine({ p1: hand, p2: tip, width: 6, color: k.rgb(20, 20, 26) });
+            k.drawLine({ p1: hand, p2: hand.add(Math.cos(a) * 6, Math.sin(a) * 6), width: 6, color: k.rgb(90, 60, 40) }); // grip
+        };
+        if (face === "up") lola(); // behind him when walking away
+        drawBody();
+        if (face !== "up") lola();
+        if (t.hasKey && face !== "up") {
+            const kp = k.vec2(-side * 9, stats.offsetY + 16);
+            k.drawCircle({ pos: kp, radius: 3, fill: false, outline: { width: 2, color: k.rgb(240, 200, 60) } });
+            k.drawRect({ pos: kp.add(-1, 3), width: 2, height: 6, color: k.rgb(240, 200, 60) });
+        }
     });
 
     return t;
 }
 
-function visionRange(player) {
-    return TEACHER.visionRange * (player.flashlightOn ? TEACHER.flashlightRangeMul : TEACHER.darkRangeMul);
+function visionRange(player, base) {
+    return base * (player.flashlightOn ? TEACHER.flashlightRangeMul : TEACHER.darkRangeMul);
 }
 
-function patrol(t, waypoints, dt, speed) {
-    if (waypoints.length < 2) return;
+function patrol(t, dt, speed, level) {
+    const wps = t.waypoints;
+    if (wps.length < 2 && t.routes.length < 2) return;
     if (t.wait > 0) {
         t.wait -= dt;
         // TODO(P3): "rozglądanie się na boki" - sweep facing left/right while waiting
         return;
     }
-    const target = waypoints[t.wpIndex];
-    if (moveTo(t, target, speed, dt)) {
-        t.wpIndex = (t.wpIndex + 1) % waypoints.length;
-        t.wait = TEACHER.waitAtWaypoint;
+    if (!moveTo(t, wps[t.wpIndex], speed, dt)) return;
+    t.wait = TEACHER.waitAtWaypoint;
+    const next = t.wpIndex + 1;
+    if (next >= wps.length && t.routes.length > 1) {
+        // finished a route: pick another one at random and walk to its start
+        const others = t.routes.filter((r) => r !== wps);
+        t.waypoints = others[Math.floor(Math.random() * others.length)];
+        t.wpIndex = 0;
+        t.path = level.findPath(t.pos, t.waypoints[0], true);
+        return;
     }
+    t.wpIndex = next % wps.length;
 }
 
-function suspicious(t, waypoints, dt, level, speed) {
+function suspicious(t, dt, level, speed) {
     if (t.path.length) {
         followPath(t, dt, speed * TEACHER.suspiciousSpeedMul);
         if (!t.path.length) {
@@ -158,7 +232,38 @@ function suspicious(t, waypoints, dt, level, speed) {
     // nothing found -> walk back to the patrol route
     t.state = AI.PATROL;
     t.alarmed = false;
-    t.path = level.findPath(t.pos, waypoints[t.wpIndex]);
+    t.path = level.findPath(t.pos, t.waypoints[t.wpIndex], true);
+}
+
+/** Boss chase: run to where he last saw you; lost you -> look around, then guess again. */
+function chase(t, dt, level, player) {
+    if (t.stun > 0) {
+        // head start: turns to face you and draws Lola, does not move yet
+        t.stun -= dt;
+        turnTowards(t, Math.atan2(player.pos.y - t.pos.y, player.pos.x - t.pos.x), dt);
+        return;
+    }
+    const seen =
+        t.pos.dist(player.pos) < BOSS.chaseSight &&
+        hasLineOfSight(t.pos.x, t.pos.y, player.pos.x, player.pos.y, level.sightSegments);
+    if (seen) {
+        t.lastSeen = player.pos.clone();
+        t.search = 0;
+    }
+    t.repath -= dt;
+    if (t.repath <= 0) {
+        t.repath = BOSS.repathEvery;
+        t.path = level.findPath(t.pos, t.lastSeen);
+    }
+    if (t.path.length) return followPath(t, dt, BOSS.chaseSpeed);
+    if (seen) return moveTo(t, player.pos, BOSS.chaseSpeed, dt); // same tile: straight at you
+    // at the last known spot and you are gone: look around, then follow his hunch
+    t.search += dt;
+    t.facing += dt * 3;
+    if (t.search > BOSS.searchTime) {
+        t.search = 0;
+        t.lastSeen = player.pos.clone();
+    }
 }
 
 function followPath(t, dt, speed) {

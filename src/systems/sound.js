@@ -42,7 +42,7 @@ export function emitSound(k, pos, radius, opts = {}) {
         k.add([
             k.pos(pos.add(0, -20)),
             k.layer("glow"),
-            k.text(opts.label, { size: 28 }),
+            k.text(opts.label, { size: 32 }),
             k.anchor("center"),
             k.color(...color),
             k.opacity(1),

@@ -1,5 +1,7 @@
-import { EXTRACTION as X, DARKNESS } from "../config.js";
+import { EXTRACTION as X } from "../config.js";
+import { drawPaper, INK } from "../ui/paper.js";
 import { emitSound } from "./sound.js";
+import { sfx } from "./audio.js";
 import { screenShake, uiShakeOffset } from "./fx.js";
 import { FAIL_SHAKE, FAIL_FLASH, MINIGAME_CAM_SHIFT, MINIGAME_GAP } from "../config.js"; // tweakables
 
@@ -25,6 +27,7 @@ const TITLES = {
 
 // close-up view geometry (screen space)
 const W = 360, H = 240;
+const BACKDROP_EXTRA = 236; // title above + timing bar and 2-line footer below the art
 
 /**
  * @param {object} pc the computer (gets .extract progress)
@@ -44,7 +47,7 @@ export function startExtraction(k, pc, player, onDone) {
     // ends up left of the screen centre and player + window are centred together.
     const box = k.vec2(
         k.width() / 2 - MINIGAME_CAM_SHIFT + X.viewRadius + MINIGAME_GAP,
-        k.height() / 2 - (H + 190) / 2 + 104, // whole backdrop (title .. footer) centred vertically
+        k.height() / 2 - (H + BACKDROP_EXTRA) / 2 + 104, // whole backdrop (title .. footer) centred vertically
     );
     const screwPos = [
         box.add(48, 48), box.add(W - 48, 48), box.add(W - 48, H - 48), box.add(48, H - 48),
@@ -80,6 +83,7 @@ export function startExtraction(k, pc, player, onDone) {
     const noise = (radius, label, color) => emitSound(k, player.pos, radius, { label, color, loudness: label ? 2 : 1 });
     const fail = (label) => {
         noise(X.failNoise, label, [255, 90, 90]);
+        sfx("crash");
         screenShake(k, FAIL_SHAKE, FAIL_FLASH);
         say(label, [255, 90, 90]);
         st.cooldown = 0.5;
@@ -114,6 +118,7 @@ export function startExtraction(k, pc, player, onDone) {
             // grab the arrow, or anywhere on the ring around the screw
             st.activeScrew = screwPos.findIndex((p, i) => pr.screws[i] < 1 &&
                 (handlePos(i).dist(m) < 24 || Math.abs(p.dist(m) - X.screwHandleRadius) < 16));
+            if (st.activeScrew >= 0) sfx("click");
             if (st.activeScrew >= 0) pr.handle[st.activeScrew] = angleTo(screwPos[st.activeScrew], m);
             return;
         }
@@ -128,6 +133,7 @@ export function startExtraction(k, pc, player, onDone) {
         pr.screws[i] = clamp01(Math.abs(pr.acc[i]) / (Math.PI * 2));
         if (pr.screws[i] >= 1) {
             noise(X.screwNoise, null, [255, 230, 120]);
+            sfx("screw");
             say("Odkręcona!", [120, 255, 140]);
             st.activeScrew = -1;
             if (pr.screws.every((v) => v >= 1)) nextStage();
@@ -144,6 +150,7 @@ export function startExtraction(k, pc, player, onDone) {
         if (!st.dragging) {
             if (!pressed || !hitbox(m)) return;
             st.dragging = true;
+            sfx("click");
             st.grab = m.sub(axis === "x" ? st.offset : 0, axis === "y" ? -st.offset : 0);
             return;
         }
@@ -151,6 +158,7 @@ export function startExtraction(k, pc, player, onDone) {
         st.offset = Math.min(want, st.offset + maxSpeed * dt);
         if (st.offset >= distance) {
             noise(okNoise, null, [255, 230, 120]);
+            sfx(axis === "x" ? "whoosh" : "success");
             nextStage();
         }
     };
@@ -160,6 +168,7 @@ export function startExtraction(k, pc, player, onDone) {
         const hit = st.needle >= st.zoneStart && st.needle <= st.zoneStart + X.latchZone;
         if (hit) {
             noise(X.latchNoise, null, [255, 230, 120]);
+            sfx("latch");
             pr.latches++;
             st.flash = 0.25;
             st.flashColor = [120, 255, 140];
@@ -220,7 +229,7 @@ export function startExtraction(k, pc, player, onDone) {
 
     // click outside the mini-game window = leave it (progress is kept, like Esc)
     // (wider by panelDistance: grabbing the half-slid panel must not count as "outside")
-    const backdrop = { pos: box.sub(30, 104), w: W + 60 + X.panelDistance, h: H + 190 };
+    const backdrop = { pos: box.sub(30, 104), w: W + 60 + X.panelDistance, h: H + BACKDROP_EXTRA };
     const handlers = [
         k.onMousePress("left", () => {
             if (st.cooldown > 0) return;
@@ -241,9 +250,9 @@ function drawUI(k, st, pr, box, screwPos) {
     // Optional art: if a sprite with this name is loaded (see main.js), it replaces the placeholder.
     const art = (name) => (k.getSprite(name)?.data ? name : null);
     // backdrop + title
-    k.drawRect({ pos: box.sub(30, 104), width: W + 60, height: H + 190, color: rgb(DARKNESS.color), opacity: Math.max(DARKNESS.opacity, 0.85), radius: 8 }); // same tone as the darkness
-    k.drawText({ text: `Krok ${pr.stage + 1}/${STAGES.length}`, pos: box.sub(14, 94), size: 32, color: rgb([120, 255, 160]) });
-    k.drawText({ text: TITLES[stage], pos: box.sub(14, 58), size: 24, width: W + 30, color: rgb([220, 230, 240]) });
+    drawPaper(k, box.sub(30, 104), W + 60, H + BACKDROP_EXTRA, { seed: 31, tape: true, margin: false }); // torn notebook page
+    k.drawText({ text: `Krok ${pr.stage + 1}/${STAGES.length}`, pos: box.sub(14, 94), size: 32, color: rgb(INK.red) });
+    k.drawText({ text: TITLES[stage], pos: box.sub(14, 54), size: 32, width: W + 30, color: rgb(INK.text) });
 
     // motherboard (visible once the panel is off)
     if (art("pc_board")) k.drawSprite({ sprite: "pc_board", pos: box, width: W, height: H });
@@ -298,9 +307,20 @@ function drawUI(k, st, pr, box, screwPos) {
                 const t = k.vec2(-Math.sin(sa), Math.cos(sa));
                 const n = k.vec2(Math.cos(sa), Math.sin(sa));
                 const active = st.activeScrew === i;
+                // white grab handle: a lever from the screw to a knob (starts above the screw,
+                // turns with it); pulses until grabbed so it is obvious what to click
+                const pulse = active ? 1 : 0.75 + 0.25 * Math.sin(k.time() * 5 + i);
+                k.drawLine({ p1: p, p2: h, width: 6, color: rgb([40, 40, 48]) });
+                k.drawLine({ p1: p, p2: h, width: 3, color: rgb([235, 235, 240]) });
+                k.drawCircle({ pos: h, radius: X.screwKnobRadius + 2, color: rgb([40, 40, 48]) });
+                k.drawCircle({ pos: h, radius: X.screwKnobRadius, color: rgb(active ? [255, 240, 150] : [250, 250, 252]), opacity: pulse });
+                // grip lines across the knob
+                for (const o of [-4, 0, 4]) {
+                    const c = h.add(n.scale(o));
+                    k.drawLine({ p1: c.sub(t.scale(5)), p2: c.add(t.scale(5)), width: 2, color: rgb([150, 150, 165]) });
+                }
                 if (X.showScrewGuides || active) {
-                    k.drawCircle({ pos: h, radius: active ? 11 : 9, color: rgb(active ? [255, 255, 255] : [255, 210, 60]) });
-                    k.drawTriangle({ p1: h.add(t.scale(16)), p2: h.add(n.scale(7)), p3: h.sub(n.scale(7)), color: rgb([255, 210, 60]) });
+                    k.drawTriangle({ p1: h.add(t.scale(24)), p2: h.add(t.scale(14)).add(n.scale(7)), p3: h.add(t.scale(14)).sub(n.scale(7)), color: rgb([255, 210, 60]) });
                 }
             });
         }
@@ -313,12 +333,12 @@ function drawUI(k, st, pr, box, screwPos) {
         k.drawRect({ pos: bar.add(st.zoneStart * W, 0), width: X.latchZone * W, height: 16, color: rgb([60, 200, 90]) });
         k.drawRect({ pos: bar.add(st.needle * W - 2, -4), width: 4, height: 24, color: rgb([255, 255, 255]) });
         if (st.flash > 0) k.drawRect({ pos: bar, width: W, height: 16, color: rgb(st.flashColor), opacity: st.flash * 2 });
-        k.drawText({ text: `Zatrzaski: ${pr.latches}/${X.latches}`, pos: bar.add(W, 22), size: 24, anchor: "topright", color: rgb([180, 180, 200]) });
+        k.drawText({ text: `Zatrzaski: ${pr.latches}/${X.latches}`, pos: bar.add(W, 24), size: 32, anchor: "topright", color: rgb(INK.soft) });
     }
 
     // feedback + footer
     if (st.msgTime > 0) k.drawText({ text: st.msg, pos: box.add(W / 2, H / 2), size: 32, anchor: "center", color: rgb(st.msgColor) });
-    k.drawText({ text: "ESC / klik obok okna - wyjdź (postęp zostaje)", pos: box.add(0, H + 66), size: 16, color: rgb([150, 150, 170]) });
+    k.drawText({ text: "Esc / klik obok okna - wyjdź\npostęp zostaje", pos: box.add(0, H + 68), size: 32, lineSpacing: -8, color: rgb(INK.soft) });
 }
 
 function ramRect(box, lift) {

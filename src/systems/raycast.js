@@ -7,16 +7,27 @@
  * @param {(cx:number, cy:number) => boolean} isOpaque
  */
 export function buildSegments(cols, rows, tile, isOpaque) {
+    // Collinear edges next to each other are joined into one segment (fewer ray tests).
     const segs = [];
-    for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-            if (!isOpaque(x, y)) continue;
-            const x0 = x * tile, y0 = y * tile, x1 = x0 + tile, y1 = y0 + tile;
-            if (!isOpaque(x, y - 1)) segs.push({ ax: x0, ay: y0, bx: x1, by: y0 });
-            if (!isOpaque(x, y + 1)) segs.push({ ax: x0, ay: y1, bx: x1, by: y1 });
-            if (!isOpaque(x - 1, y)) segs.push({ ax: x0, ay: y0, bx: x0, by: y1 });
-            if (!isOpaque(x + 1, y)) segs.push({ ax: x1, ay: y0, bx: x1, by: y1 });
+    const run = (n, isEdge, make) => {
+        let start = -1;
+        for (let i = 0; i <= n; i++) {
+            const e = i < n && isEdge(i);
+            if (e && start < 0) start = i;
+            if (!e && start >= 0) {
+                segs.push(make(start, i));
+                start = -1;
+            }
         }
+    };
+    for (let y = 0; y < rows; y++) {
+        // top edges of row y, bottom edges of row y
+        run(cols, (x) => isOpaque(x, y) && !isOpaque(x, y - 1), (a, b) => ({ ax: a * tile, ay: y * tile, bx: b * tile, by: y * tile }));
+        run(cols, (x) => isOpaque(x, y) && !isOpaque(x, y + 1), (a, b) => ({ ax: a * tile, ay: (y + 1) * tile, bx: b * tile, by: (y + 1) * tile }));
+    }
+    for (let x = 0; x < cols; x++) {
+        run(rows, (y) => isOpaque(x, y) && !isOpaque(x - 1, y), (a, b) => ({ ax: x * tile, ay: a * tile, bx: x * tile, by: b * tile }));
+        run(rows, (y) => isOpaque(x, y) && !isOpaque(x + 1, y), (a, b) => ({ ax: (x + 1) * tile, ay: a * tile, bx: (x + 1) * tile, by: b * tile }));
     }
     return segs;
 }

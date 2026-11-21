@@ -6,14 +6,22 @@ import { spawnTeacher } from "../entities/teacher.js";
 import { addLighting } from "../systems/lighting.js";
 import { startExtraction } from "../systems/extraction.js";
 import { addFx, screenShake, uiShakeOffset, shakeOffset, setContinuousShake } from "../systems/fx.js";
-import { MINIGAME_CAM_SHIFT } from "../config.js";
+import { MINIGAME_CAM_SHIFT, INTERACT_DIST } from "../config.js";
+import { STORY } from "../story/script.js";
+import { showDialog, dialogBlocksInput } from "../systems/dialog.js";
+import { playMusic, sfx } from "../systems/audio.js";
+import { firstTime } from "../story/progress.js";
+import { addHud } from "../ui/hud.js";
+import { INK } from "../ui/paper.js";
+import { startQte } from "../minigames/qte.js";
+import { startAntenna } from "../minigames/antenna.js";
+import { startKeypad } from "../minigames/keypad.js";
+import { addBossLevel } from "./boss.js";
 import { CAMERA_LERP, ALARM_SHAKE, ALARM_NEAR_DIST, PROXIMITY_DIST, PROXIMITY_MAX_SHAKE, PROXIMITY_CURVE } from "../config.js";
-
-const INTERACT_DIST = TILE * 1.3;
 
 /**
  * Scene params:
- *   levelIndex - which entry of LEVELS to play (default 0 = tutorial)
+ *   levelIndex - which entry of LEVELS to play (default 0 = first level)
  *   run        - stats carried between levels { ram, startTime }
  */
 export function gameScene(k) {
@@ -36,25 +44,48 @@ export function gameScene(k) {
 
         run ??= { ram: 0, startTime: k.time() };
         const retryRun = { ...run }; // snapshot for "try again" on this level
-        const state = { roomRam: 0, over: false };
+        const state = {
+            roomRam: 0,
+            over: false,
+            // level 2: random door code; terminal 1 reveals digits 1-2, terminal 2 digits 3-4
+            code: String(Math.floor(Math.random() * 10000)).padStart(4, "0"),
+        };
+        const term = (kind) => level.terminals.find((t) => t.kind === kind);
+        const knownCode = () =>
+            (term("qte")?.done ? state.code.slice(0, 2) : "??") + (term("antenna")?.done ? state.code.slice(2) : "??");
+        const signalReady = () => Boolean(term("qte")?.done && term("antenna")?.done);
+        // dev: inspect the level from the browser console (see CONVENTIONS, "Debug")
+        if (import.meta.env.DEV) Object.assign(window, { __level: level, __state: state });
+        const lines = STORY.levels[room.id] ?? {};
+        // story lines are shown only the first time (not again after a retry)
+        const story = (key) => (firstTime(`${room.id ?? levelIndex}:${key}`) ? lines[key] : null);
+        playMusic("level");
 
-        const caught = () => {
+        /** @param {string} reason "teacher" | "mieciu" | "lola" | "timeout" (text in scenes/menus.js) */
+        const caught = (reason = "teacher") => {
             if (state.over) return;
             state.over = true;
-            k.go("gameover", { ram: run.ram, levelIndex, retryRun });
+            k.go("gameover", { ram: run.ram, levelIndex, retryRun, reason });
         };
         const nextLevel = () => {
             if (state.over) return;
             state.over = true;
-            if (levelIndex + 1 < LEVELS.length) k.go("game", { levelIndex: levelIndex + 1, run });
-            else k.go("win", { ram: run.ram, time: k.time() - run.startTime });
-            // TODO: GDD finale - after the last room: alarm + 20 s escape to the roof
+            const last = levelIndex + 1 >= LEVELS.length;
+            const next = last
+                ? { scene: "win", params: { ram: run.ram, time: k.time() - run.startTime } }
+                : { scene: "game", params: { levelIndex: levelIndex + 1, run } };
+            if (room.cutsceneAfter) k.go("cutscene", { id: room.cutsceneAfter, next });
+            else k.go(next.scene, next.params);
         };
 
         const lighting = addLighting(k, level, player);
         for (const t of level.teachers) {
             spawnTeacher(k, t, { level, player, lighting, onCaught: caught });
         }
+        // level 3: Pan Mieciu, ping-pong balls, the key and the escape (scenes/boss.js)
+        const bossLevel = room.boss
+            ? addBossLevel(k, { level, player, lines, story, caught, toast: (text, color) => hud.toast(text, color) })
+            : null;
 
         addFx(k);
 
@@ -62,19 +93,54 @@ export function gameScene(k) {
         k.onKeyPress("f", () => player.toggleFlashlight());
         k.onMousePress("right", () => player.toggleFlashlight());
 
-        k.onKeyPress("e", () => {
-            if (player.busy) return;
-            const pc = nearestComputer(level, player);
-            if (!pc) return;
-            player.busy = true;
+        const stealRam = (pc) => {
             startExtraction(k, pc, player, (ok) => {
                 player.busy = false;
-                if (!ok) return;
+                if (!ok) return sfx("menuMove"); // left the mini-game, progress kept
                 pc.hasRam = false;
                 run.ram++;
                 state.roomRam++;
-                if (state.roomRam >= room.ramToOpen) level.openDoors();
+                hud.toast("+1 RAM");
+                if (state.roomRam >= room.ramToOpen) {
+                    level.openDoors();
+                    sfx("unlock");
+                    hud.toast("Drzwi otwarte!", INK.red);
+                    showDialog(k, story("doorsOpen"));
+                } else if (state.roomRam === 1) showDialog(k, story("firstRam"));
             });
+        };
+
+        const useTerminal = (t) => {
+            const done = (ok) => {
+                player.busy = false;
+                if (!ok) return sfx("menuMove");
+                t.done = true;
+                if (t.kind === "keypad") {
+                    level.openDoors();
+                    hud.toast("Drzwi otwarte!", INK.red);
+                    return showDialog(k, story("doorsOpen"));
+                }
+                hud.toast(`Kod: ${t.kind === "qte" ? state.code.slice(0, 2) : state.code.slice(2)}`);
+                showDialog(k, signalReady() ? story("bothTerminals") : story("firstTerminal"));
+            };
+            if (t.kind === "qte") startQte(k, player, t, state.code.slice(0, 2), done);
+            else if (t.kind === "antenna") startAntenna(k, player, t, state.code.slice(2), done);
+            else startKeypad(k, player, t, state.code, knownCode(), done);
+        };
+
+        k.onKeyPress("e", () => {
+            if (player.busy || dialogBlocksInput(k)) return;
+            const target = nearestInteractable(level, player);
+            if (!target) return;
+            if (target.terminal?.kind === "keypad" && !signalReady()) {
+                // the lock has no signal until both terminals are done
+                sfx("error");
+                return showDialog(k, lines.noSignal);
+            }
+            player.busy = true;
+            sfx("click");
+            if (target.pc) stealRam(target.pc);
+            else useTerminal(target.terminal);
         });
 
         // Exit: walking out of the map through the opened door.
@@ -83,21 +149,82 @@ export function gameScene(k) {
             if (x < 0 || y < 0 || x > level.width || y > level.height) nextLevel();
         });
 
-        // ---- "?" / "!" over teachers (glow layer = visible in the dark) ----
+        // ---- "?" / "!" over teachers, PC you can open (glow layer = visible in the dark) ----
         k.add([
             k.layer("glow"),
             {
                 draw() {
+                    drawTerminals();
+                    const target = !player.busy && nearestInteractable(level, player);
+                    if (target) {
+                        // pulsing frame around the PC / terminal + key hint (red = locked keypad)
+                        const locked = target.terminal?.kind === "keypad" && !signalReady();
+                        const pulse = 0.5 + 0.5 * Math.sin(k.time() * 6);
+                        const p = k.vec2(target.cx * TILE, target.cy * TILE);
+                        k.drawRect({
+                            pos: p.sub(2, 2), width: TILE + 4, height: TILE + 4, fill: false,
+                            outline: { width: 2, color: k.rgb(...(locked ? [255, 90, 90] : [120, 255, 150])) }, opacity: 0.5 + 0.5 * pulse,
+                        });
+                        const kp = p.add(TILE / 2, -14 - pulse * 3);
+                        k.drawRect({ pos: kp.sub(14, 14), width: 28, height: 28, color: k.rgb(0, 0, 0), opacity: 0.8, radius: 4 });
+                        k.drawRect({ pos: kp.sub(14, 14), width: 28, height: 28, fill: false, outline: { width: 2, color: k.rgb(255, 255, 255) }, radius: 4 });
+                        k.drawText({ text: "E", pos: kp.add(0, 1), size: 32, anchor: "center", color: k.rgb(255, 255, 255) });
+                    }
                     for (const t of k.get("teacher")) {
                         if (t.detection <= 0) continue;
                         const p = t.pos.add(0, -28);
                         k.drawRect({ pos: p.add(-14, 0), width: 28, height: 4, color: k.rgb(40, 40, 40) });
                         k.drawRect({ pos: p.add(-14, 0), width: 28 * t.detection, height: 4, color: k.rgb(255, 60, 60) });
-                        k.drawText({ text: t.detection > 0.6 ? "!" : "?", pos: p.add(0, -14), size: 24, anchor: "center", color: k.rgb(255, 220, 80) });
+                        k.drawText({ text: t.detection > 0.6 ? "!" : "?", pos: p.add(0, -14), size: 32, anchor: "center", color: k.rgb(255, 220, 80) });
                     }
                 },
             },
         ]);
+
+        // ---- level 2: terminal LEDs, keypad, "BRAK ZASIĘGU", the locked door ----
+        function drawTerminals() {
+            const blink = Math.sin(k.time() * 6) > -0.3;
+            for (const t of level.terminals) {
+                const p = k.vec2(t.cx * TILE, t.cy * TILE);
+                if (t.kind === "keypad") {
+                    const open = t.done, ready = signalReady();
+                    const col = open ? [120, 255, 160] : ready ? [255, 220, 110] : [255, 60, 60];
+                    k.drawRect({ pos: p.add(8, 6), width: 16, height: 20, radius: 3, color: k.rgb(20, 22, 26) });
+                    k.drawRect({ pos: p.add(11, 9), width: 10, height: 4, color: k.rgb(...col), opacity: open || blink ? 1 : 0.3 });
+                    // floating warning when you come close to the jammed lock
+                    const near = player.pos.dist(p.add(TILE / 2, TILE / 2)) < TILE * 4;
+                    if (!ready && near && blink) {
+                        k.drawText({ text: "BRAK ZASIĘGU", pos: p.add(-60, -18), size: 32, anchor: "center", color: k.rgb(255, 90, 90) });
+                    }
+                } else {
+                    const col = t.done ? [120, 200, 255] : [120, 255, 150];
+                    k.drawCircle({ pos: p.add(TILE - 7, TILE - 7), radius: 3, color: k.rgb(...col), opacity: t.done || blink ? 1 : 0.25 });
+                }
+            }
+        }
+        if (room.drawDoors || level.terminals.some((t) => t.kind === "keypad")) {
+            // the exit door is drawn here (the PNG art shows only the frame): sliding panels
+            const slide = { t: 0 };
+            k.add([
+                k.layer("world"),
+                k.z(5),
+                {
+                    update() {
+                        if (level.doors.some((d) => d.isOpen)) slide.t = Math.min(1, slide.t + k.dt() * 1.5);
+                    },
+                    draw() {
+                        for (const d of level.doors) {
+                            const p = k.vec2(d.cx * TILE, d.cy * TILE);
+                            const h = TILE * (1 - slide.t);
+                            if (h < 1) continue;
+                            k.drawRect({ pos: p.add(4, 0), width: TILE - 8, height: h, color: k.rgb(96, 102, 116) });
+                            k.drawRect({ pos: p.add(4, 0), width: TILE - 8, height: h, fill: false, outline: { width: 2, color: k.rgb(40, 42, 50) } });
+                            for (let y = 6; y < h - 4; y += 8) k.drawRect({ pos: p.add(8, y), width: TILE - 16, height: 2, color: k.rgb(70, 74, 86) });
+                        }
+                    },
+                },
+            ]);
+        }
 
         // ---- alarm: shake + red glow while a teacher is coming after a failed mini-game ----
         let wasAlarmed = 0;
@@ -108,7 +235,18 @@ export function gameScene(k) {
             {
                 update() {
                     const alarmed = k.get("teacher").filter((t) => t.alarmed);
-                    if (alarmed.length > wasAlarmed) screenShake(k, ALARM_SHAKE, 1); // shake + red flash
+                    if (alarmed.length > wasAlarmed) {
+                        screenShake(k, ALARM_SHAKE, 1); // shake + red flash
+                        sfx("alarm");
+                    }
+                    if (!state.over) playMusic(alarmed.length ? "alarm" : "level");
+                    // "!" sting when a teacher starts spotting you (once per sighting)
+                    for (const t of k.get("teacher")) {
+                        if (t.detection > 0.3 && !t.stung) {
+                            t.stung = true;
+                            sfx("detect");
+                        } else if (t.detection <= 0) t.stung = false;
+                    }
                     wasAlarmed = alarmed.length;
                     // 0..1: how close the nearest alarmed teacher is
                     let closeness = 0;
@@ -146,46 +284,44 @@ export function gameScene(k) {
         ]);
 
         // ---- HUD ----
-        const hud = k.add([k.layer("ui"), k.pos(12, 8), k.fixed(), k.text("", { size: 24 }), k.color(220, 255, 220)]);
-        k.add([
-            k.layer("ui"),
-            k.pos(12, k.height() - 22),
-            k.fixed(),
-            k.text("WASD ruch · mysz celuje · PPM/F latarka · E kradnij RAM · F2 debug: ciemność · F3 kolizje (mapa PNG)", { size: 24 }),
-            k.opacity(0.6),
-        ]);
-        if (room.tips) {
-            k.add([
-                k.layer("ui"),
-                k.pos(k.width() - 12, 8),
-                k.anchor("topright"),
-                k.fixed(),
-                k.text(room.tips.join("\n"), { size: 24, align: "right", lineSpacing: 4 }),
-                k.color(255, 230, 120),
-            ]);
-        }
-        hud.onUpdate(() => {
-            const pc = nearestComputer(level, player);
-            hud.text =
-                `${room.name}   (${levelIndex + 1}/${LEVELS.length})\n` +
-                `RAM: ${run.ram}/${TOTAL_RAM}   w tej sali: ${state.roomRam}/${room.ramToOpen}` +
-                `   Latarka: ${player.flashlightOn ? "ON" : "OFF"}` +
-                (pc && !player.busy ? "   E: otwórz komputer" : "") +
-                (level.doors.some((d) => d.isOpen) ? "   Drzwi otwarte! Wyjdź z sali." : "");
+        const hud = addHud(k, {
+            room, levelIndex, run, state, player, level,
+            // level 2 (no RAM): door code panel instead of RAM slots
+            code: room.ramToOpen ? null : knownCode,
+            signal: () => level.terminals.filter((t) => t.done && t.kind !== "keypad").length * 2,
+            // level 3: ping-pong balls instead of RAM, escape countdown
+            balls: bossLevel && (() => bossLevel.balls),
+            timer: bossLevel && bossLevel.timer,
+            goal: () => {
+                if (bossLevel) return bossLevel.goal();
+                if (level.doors.some((d) => d.isOpen)) return "Uciekaj przez otwarte drzwi!";
+                if (room.ramToOpen) return "Ukradnij RAM z komputerów";
+                if (!signalReady()) return `Przywróć zasięg: terminale ${level.terminals.filter((t) => t.done).length}/2`;
+                return "Otwórz zamek przy drzwiach";
+            },
+        });
+        k.onKeyPress("h", () => hud.toggleHelp());
+        // hero's comment, then the controls card (both only the first time)
+        k.wait(0.5, async () => {
+            await showDialog(k, story("start"));
+            if (firstTime("controls")) hud.showHelp();
         });
     });
 }
 
-function nearestComputer(level, player) {
+/** Closest thing you can press E on: a PC with RAM or an unfinished terminal. */
+function nearestInteractable(level, player) {
     let best = null;
     let bestD = INTERACT_DIST;
-    for (const pc of level.computers) {
-        if (!pc.hasRam) continue;
-        const d = pc.pos.add(TILE / 2, TILE / 2).dist(player.pos);
+    const consider = (cx, cy, target) => {
+        // distance to the tile centre (pc.pos is shifted by the desk inset)
+        const d = Math.hypot((cx + 0.5) * TILE - player.pos.x, (cy + 0.5) * TILE - player.pos.y);
         if (d < bestD) {
-            best = pc;
+            best = { cx, cy, ...target };
             bestD = d;
         }
-    }
+    };
+    for (const pc of level.computers) if (pc.hasRam) consider(pc.cx, pc.cy, { pc });
+    for (const t of level.terminals) if (!t.done) consider(t.cx, t.cy, { terminal: t });
     return best;
 }

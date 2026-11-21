@@ -2,8 +2,8 @@
 // Run: npm run check-levels
 import { LEVELS } from "../src/level/rooms.js";
 
-const KNOWN = new Set(["#", "S", "=", "C", "G", "D", "P", "."]);
-const SOLID = new Set(["#", "S", "=", "C", "G", "D"]);
+const KNOWN = new Set(["#", "S", "=", "C", "G", "D", "P", ".", ",", "1", "2", "K", "T", "B", "Y", "H", "O"]);
+const SOLID = new Set(["#", "S", "=", "C", "G", "D", "1", "2", "K", "T", "B", "Y", "H", "O"]);
 let errors = 0;
 const err = (lvl, msg) => {
     errors++;
@@ -21,6 +21,7 @@ for (const lvl of LEVELS) {
     let player = null;
     const pcs = [];
     const doors = [];
+    const terminals = {}; // "1" | "2" | "K" -> [x, y]
     lvl.map.forEach((row, y) => {
         if (row.length !== cols) err(lvl, `row ${y} has ${row.length} chars, expected ${cols}`);
         [...row].forEach((ch, x) => {
@@ -31,15 +32,21 @@ for (const lvl of LEVELS) {
             if (ch === "P") player = [x, y];
             if (ch === "C") pcs.push([x, y]);
             if (ch === "D") doors.push([x, y]);
+            if ("12K".includes(ch)) {
+                if (terminals[ch]) err(lvl, `terminal '${ch}' used twice`);
+                terminals[ch] = [x, y];
+            }
         });
     });
     if (!player) err(lvl, "no player start P");
     if (pcs.length < lvl.ramToOpen) err(lvl, `ramToOpen=${lvl.ramToOpen} but only ${pcs.length} PCs`);
     if (!doors.length) err(lvl, "no exit door D");
-
+    if (terminals.K && (!terminals["1"] || !terminals["2"])) err(lvl, "keypad K needs terminals 1 and 2");
+    if (!lvl.ramToOpen && !terminals.K && !lvl.boss) err(lvl, "ramToOpen is 0, no keypad K and no boss: the door never opens");
+    if (lvl.boss && !(lvl.teachers ?? []).some((t) => t.boss)) err(lvl, "boss level without a teacher marked { boss: true }");
     // routes: letters exist + straight lines are free
-    for (const t of lvl.teachers ?? []) {
-        const route = typeof t === "string" ? t : t.route;
+    const routes = (lvl.teachers ?? []).flatMap((t) => (typeof t === "string" ? [t] : t.routes ?? [t.route]));
+    for (const route of routes) {
         for (const ch of route) if (!wps[ch]) err(lvl, `route "${route}": waypoint '${ch}' not on the map`);
         for (let i = 0; i < route.length; i++) {
             const a = wps[route[i]], b = wps[route[(i + 1) % route.length]];
@@ -48,7 +55,7 @@ for (const lvl of LEVELS) {
             for (let s = 0; s <= steps; s++) {
                 const x = Math.floor(a[0] + 0.5 + ((b[0] - a[0]) * s) / steps);
                 const y = Math.floor(a[1] + 0.5 + ((b[1] - a[1]) * s) / steps);
-                if (solid(x, y)) {
+                if (solid(x, y) || at(x, y) === ",") {
                     err(lvl, `route "${route}": line ${route[i]}->${route[(i + 1) % route.length]} blocked at ${x},${y}`);
                     break;
                 }
@@ -73,6 +80,7 @@ for (const lvl of LEVELS) {
         }
         const nextTo = ([x, y]) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => seen.has(`${x + dx},${y + dy}`));
         pcs.forEach((p) => !nextTo(p) && err(lvl, `PC at ${p} unreachable`));
+        Object.entries(terminals).forEach(([ch, p]) => !nextTo(p) && err(lvl, `terminal '${ch}' at ${p} unreachable`));
         if (!doors.some((d) => seen.has(d.join()))) err(lvl, "exit door unreachable");
         const edge = doors.some(([x, y]) => x === 0 || y === 0 || x === cols - 1 || y === rows - 1);
         if (!edge) err(lvl, "exit door must be on the map edge");
