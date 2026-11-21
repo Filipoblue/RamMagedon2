@@ -92,7 +92,7 @@ export const STORY = {
                 p("Trzeba ogarnąć klucz, a jedyny klucz ma Pan Mieciu. Nosi go przy pasku."),
                 p("Mimo że nie w kwiecie wieku widzi nadal ostro, a jak zobaczy to czeka spotkanie z Lolą."),
                 p("Na stole do ping-ponga są jakieś piłeczki. Jak rzucę jedną, pewnie pójdzie sprawdzić, co stuknęło."),
-                p("Wtedy kradne mu klucz i zawijka. Seems easy."),
+                 p("Wtedy kradne mu klucz i zawijka. Seems easy."),
             ],
             balls: [p("Mam trzy rzuty, lepiej nie spudłować."), 
                 n("Rzucanie jest pod Q, piłka leci gdzie celujesz.")
@@ -108,17 +108,17 @@ export const STORY = {
 
     // ---- cutscene 3: the school yard, the end ----
     outro: {
-        out: [p("Jestem na zewnątrz! Brama, brama, gdzie jest brama...")],
+        out: [p("W końcu... gdzie jest ten pilot?")],
         mieciu: [
-            { who: "mieciu", text: "Wracaj tu, ancymonie! Lola wszystko pamięta!" },
-            { who: "mieciu", text: "Jutro rano sprawdzę wszystkie komputery! Wszystkie!" },
+            { who: "mieciu", text: "Ty... chytrusie!" },
+            { who: "mieciu", text: "Już nigdy nie przejedziesz się windą!" },
         ],
         gate: [
-            pi("Wsiadaj, szybko! Masz ten RAM?"),
-            p("Mam. Dwie kości z pracowni multimedialnej."),
-            pi("I to było warte nocy w szkole, zamka bez zasięgu i woźnego z pałką?"),
-            p("Starczy na bułkę w sklepiku. I może na drożdżówkę."),
-            n("Koniec. A jutro na informatyce ktoś bardzo się zdziwi, że komputery nie chcą się włączyć."),
+            pi("Co tak długo! Masz ten RAM?"),
+            p("Jeszcze jak! Całe 2 kości."),
+            pi("Stary, Ty se żartujesz?"),
+            p("No na GTA starczy, jutro lecimy do TME po ich RAM."),
+            n("I tyle ich widziano."),
         ],
     },
 };
