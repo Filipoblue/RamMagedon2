@@ -40,7 +40,7 @@ export function addLighting(k, level, player) {
                             pos: k.vec2(-2000, -2000),
                             width: level.width + 4000,
                             height: level.height + 4000,
-                            color: k.rgb(0, 0, 0),
+                            color: k.rgb(...DARKNESS.color),
                             opacity: DARKNESS.opacity,
                         });
                     },

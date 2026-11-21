@@ -35,6 +35,7 @@ export const FLASHLIGHT = {
 };
 
 export const DARKNESS = {
+    color: [0, 0, 0], // darkness colour (also used for the mini-game window background)
     opacity: 0.8, // < 1: the map is faintly visible everywhere (teachers stay hidden unless lit)
 };
 
@@ -63,10 +64,11 @@ export const TEACHER = {
 export const EXTRACTION = {
     // 1) unscrew 4 screws: grab the arrow next to a screw and drag it one full circle
     screwHandleRadius: 34, // px, circle the arrow travels on
-    showScrewGuides: true, // false = hide the drawn ring + arrow (when the panel art has engraved arrows)
+    showScrewGuides: false, // true = draw the ring + yellow arrow (off: pc_panel_with_guiding_arrows shows them)
     screwNoise: TILE * 3, // each finished screw
     // 2) slide the side panel off: drag it to the right
     panelDistance: 220, // px
+    panelMaxSpeed: 150, // px/s, the panel never moves faster than this (no penalty, just slow)
     panelNoise: TILE * 5,
     // 3) open 2 RAM latches: timing bar, Space/E in the green zone
     latches: 2,
@@ -76,7 +78,8 @@ export const EXTRACTION = {
     needleSpeedDark: 1.25, // flashlight OFF (harder)
     // 4) pull the RAM out: drag it up
     pullDistance: 110, // px
-    pullNoise: TILE * 3,
+    pullMaxSpeed: 70, // px/s, same for the RAM stick
+    pullNoise: TILE * 6, // pulling the RAM out is loud-ish
     failNoise: TILE * 12, // "TRZASK!" (missed latch)
     viewRadius: TILE * 2.5, // view circle while doing a mini-game (was 1.2, normal is FLASHLIGHT.nearRadius)
 };

@@ -1,4 +1,4 @@
-import { EXTRACTION as X } from "../config.js";
+import { EXTRACTION as X, DARKNESS } from "../config.js";
 import { emitSound } from "./sound.js";
 import { screenShake, uiShakeOffset } from "./fx.js";
 import { FAIL_SHAKE, FAIL_FLASH, MINIGAME_CAM_SHIFT, MINIGAME_GAP } from "../config.js"; // tweakables
@@ -102,12 +102,15 @@ export function startExtraction(k, pc, player, onDone) {
         const a = pr.handle[i];
         return screwPos[i].add(Math.cos(a) * X.screwHandleRadius, Math.sin(a) * X.screwHandleRadius);
     };
-    const updateScrews = (dt, m, down) => {
+    // `pressed` = LMB went down THIS frame. Grabbing needs a fresh click, so holding the
+    // button cannot slide from one screw / stage into the next.
+    const updateScrews = (dt, m, down, pressed) => {
         if (!down) {
             st.activeScrew = -1;
             return;
         }
         if (st.activeScrew < 0) {
+            if (!pressed) return;
             // grab the arrow, or anywhere on the ring around the screw
             st.activeScrew = screwPos.findIndex((p, i) => pr.screws[i] < 1 &&
                 (handlePos(i).dist(m) < 24 || Math.abs(p.dist(m) - X.screwHandleRadius) < 16));
@@ -132,18 +135,20 @@ export function startExtraction(k, pc, player, onDone) {
     };
 
     // shared by panel (drag right) and pull (drag up): just drag it far enough
-    const updateDrag = (m, down, axis, distance, hitbox, okNoise) => {
+    // (the part moves at most maxSpeed px/s, however fast you pull the mouse)
+    const updateDrag = (dt, m, down, pressed, axis, distance, maxSpeed, hitbox, okNoise) => {
         if (!down) {
             st.dragging = false;
             return;
         }
         if (!st.dragging) {
-            if (!hitbox(m)) return;
+            if (!pressed || !hitbox(m)) return;
             st.dragging = true;
             st.grab = m.sub(axis === "x" ? st.offset : 0, axis === "y" ? -st.offset : 0);
             return;
         }
-        st.offset = Math.max(0, axis === "x" ? m.x - st.grab.x : st.grab.y - m.y);
+        const want = Math.max(0, axis === "x" ? m.x - st.grab.x : st.grab.y - m.y);
+        st.offset = Math.min(want, st.offset + maxSpeed * dt);
         if (st.offset >= distance) {
             noise(okNoise, null, [255, 230, 120]);
             nextStage();
@@ -182,12 +187,13 @@ export function startExtraction(k, pc, player, onDone) {
                 st.flash -= dt;
                 const m = k.mousePos();
                 const down = k.isMouseDown("left") && st.cooldown <= 0;
+                const pressed = k.isMousePressed("left") && st.cooldown <= 0;
                 const stage = STAGES[pr.stage];
-                if (stage === "screws") updateScrews(dt, m, down);
+                if (stage === "screws") updateScrews(dt, m, down, pressed);
                 else if (stage === "panel")
-                    updateDrag(m, down, "x", X.panelDistance, (p) => inRect(p, box.add(st.offset, 0), W, H), X.panelNoise);
+                    updateDrag(dt, m, down, pressed, "x", X.panelDistance, X.panelMaxSpeed, (p) => inRect(p, box.add(st.offset, 0), W, H), X.panelNoise);
                 else if (stage === "pull")
-                    updateDrag(m, down, "y", X.pullDistance, (p) => inRect(p, ramRect(box, st.offset).pos.sub(10, 10), 220, 50), X.pullNoise);
+                    updateDrag(dt, m, down, pressed, "y", X.pullDistance, X.pullMaxSpeed, (p) => inRect(p, ramRect(box, st.offset).pos.sub(10, 10), 220, 50), X.pullNoise);
                 else if (stage === "latches") {
                     const speed = player.flashlightOn ? X.needleSpeedLight : X.needleSpeedDark;
                     st.needle += st.dir * speed * dt;
@@ -212,7 +218,14 @@ export function startExtraction(k, pc, player, onDone) {
         onDone(ok);
     };
 
+    // click outside the mini-game window = leave it (progress is kept, like Esc)
+    // (wider by panelDistance: grabbing the half-slid panel must not count as "outside")
+    const backdrop = { pos: box.sub(30, 104), w: W + 60 + X.panelDistance, h: H + 190 };
     const handlers = [
+        k.onMousePress("left", () => {
+            if (st.cooldown > 0) return;
+            if (!inRect(k.mousePos(), backdrop.pos, backdrop.w, backdrop.h)) finish(false);
+        }),
         k.onKeyPress("space", latchPress),
         k.onKeyPress("e", latchPress),
         k.onKeyPress("escape", () => finish(false)),
@@ -228,7 +241,7 @@ function drawUI(k, st, pr, box, screwPos) {
     // Optional art: if a sprite with this name is loaded (see main.js), it replaces the placeholder.
     const art = (name) => (k.getSprite(name)?.data ? name : null);
     // backdrop + title
-    k.drawRect({ pos: box.sub(30, 104), width: W + 60, height: H + 190, color: rgb([8, 10, 16]), opacity: 0.92, radius: 8 });
+    k.drawRect({ pos: box.sub(30, 104), width: W + 60, height: H + 190, color: rgb(DARKNESS.color), opacity: Math.max(DARKNESS.opacity, 0.85), radius: 8 }); // same tone as the darkness
     k.drawText({ text: `Krok ${pr.stage + 1}/${STAGES.length}`, pos: box.sub(14, 94), size: 32, color: rgb([120, 255, 160]) });
     k.drawText({ text: TITLES[stage], pos: box.sub(14, 58), size: 24, width: W + 30, color: rgb([220, 230, 240]) });
 
@@ -254,7 +267,10 @@ function drawUI(k, st, pr, box, screwPos) {
     if (pr.stage <= 1) {
         const off = stage === "panel" ? st.offset : 0;
         // during the panel stage use the "swipe" version of the art if it is loaded
-        const panelArt = stage === "panel" && art("pc_panel_swipe") ? "pc_panel_swipe" : art("pc_panel");
+        const panelArt =
+            stage === "panel" && art("pc_panel_swipe") ? "pc_panel_swipe"
+            : stage === "screws" && art("pc_panel_arrows") ? "pc_panel_arrows"
+            : art("pc_panel");
         if (panelArt) k.drawSprite({ sprite: panelArt, pos: box.add(off, 0), width: W, height: H });
         else {
             k.drawRect({ pos: box.add(off, 0), width: W, height: H, color: rgb([95, 100, 115]), outline: { width: 3, color: rgb([60, 60, 70]) } });
@@ -302,7 +318,7 @@ function drawUI(k, st, pr, box, screwPos) {
 
     // feedback + footer
     if (st.msgTime > 0) k.drawText({ text: st.msg, pos: box.add(W / 2, H / 2), size: 32, anchor: "center", color: rgb(st.msgColor) });
-    k.drawText({ text: "ESC - przerwij (postęp zostaje)", pos: box.add(0, H + 66), size: 16, color: rgb([150, 150, 170]) });
+    k.drawText({ text: "ESC / klik obok okna - wyjdź (postęp zostaje)", pos: box.add(0, H + 66), size: 16, color: rgb([150, 150, 170]) });
 }
 
 function ramRect(box, lift) {

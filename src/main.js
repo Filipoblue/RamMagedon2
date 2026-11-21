@@ -26,11 +26,13 @@ k.loadFont("minecraftia", "fonts/Minecraftia-Regular.ttf", { filter: "nearest" }
 k.loadSprite("pc_panel", "sprites/pc_panel.png");
 k.loadSprite("pc_board", "sprites/pc_board.png");
 k.loadSprite("pc_panel_swipe", "sprites/pc_panel_swipe.png"); // panel art shown during the "slide" stage
-// k.loadSprite("pc_ram", "sprites/pc_ram.png");
+k.loadSprite("pc_ram", "sprites/pc_ram.png");
+k.loadSprite("pc_panel_arrows", "sprites/pc_panel_with_guiding_arrows.png"); // panel art for the screw stage
 // k.loadSprite("pc_screw", "sprites/pc_screw.png");
 // Room art (see `background` in src/level/rooms.js). Square Tiled exports are fine:
 // the sprite is drawn at its natural size from the top-left corner, transparent padding is ignored.
 k.loadSprite("tutorial", "sprites/tutorial.png");
+k.loadSprite("level2", "sprites/level2.png");
 // k.loadSprite("sala1", "maps/sala1.png");
 
 // Dev only: access the engine from the browser console (e.g. __k.get("player")[0]).
